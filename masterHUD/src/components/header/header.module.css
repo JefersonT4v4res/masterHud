@@ -1,0 +1,27 @@
+.header {
+  display: flex;
+  align-items: center;
+  height: 64px;
+  padding: 0 24px;
+}
+
+.logoArea img {
+  height: 40px;
+}
+
+.nav {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  gap: 32px;
+}
+
+.nav a {
+  text-decoration: none;
+  color: #ffffff;
+  font-weight: 500;
+}
+
+.active {
+  border-bottom: 2px solid #2563eb;
+}

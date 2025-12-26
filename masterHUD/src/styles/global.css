@@ -1,0 +1,12 @@
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--bg-main);
+  color: var(--text-main);
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+}

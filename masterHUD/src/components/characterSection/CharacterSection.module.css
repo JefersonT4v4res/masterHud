@@ -1,0 +1,100 @@
+.section {
+  background: #cbd5df;
+  padding: 16px;
+  border-radius: 8px;
+  margin-bottom: 24px;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #c026d3;
+}
+
+.title h2 {
+  font-size: 18px;
+  margin: 0;
+}
+
+.title small {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.arrow {
+  color: #a855f7;
+}
+
+.inviteButton {
+  background: #c026d3;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.cards {
+  display: flex;
+  gap: 16px;
+  overflow-x: auto;
+}
+
+.card {
+  background: #d1d5db;
+  min-width: 260px;
+  padding: 12px;
+  border-radius: 8px;
+}
+
+.username {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.cardContent {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin: 8px 0;
+}
+
+.cardContent img {
+  width: 66px;
+  height: 66px;
+  border-radius: 50%;
+}
+
+.cardContent h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.cardContent p {
+  font-size: 12px;
+  color: #374151;
+}
+
+.actions {
+  display: flex;
+  gap: 12px;
+}
+
+.actions button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.delete {
+  color: #ef4444;
+}
