@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Login</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <main class="page">
+    <section class="login" aria-labelledby="login-title">
+      <h1 class="login__title" id="login-title">Login to Master Hud</h1>
+
+      <form class="login__form" action="#" method="post">
+        <div class="login__fields">
+          <label class="login__field">
+            <img class="login__icon login__icon--left" src="https://www.figma.com/api/mcp/asset/8fcd7a6b-411e-4e60-88d1-2baafcdf2acf" alt="Email icon" />
+            <input class="login__input" type="email" name="email" placeholder="Email" autocomplete="email" />
+          </label>
+
+          <label class="login__field">
+            <img class="login__icon login__icon--left" src="https://www.figma.com/api/mcp/asset/369f0bcf-641c-44d1-8a9e-ab24521f5a14" alt="Password icon" />
+            <input class="login__input" type="password" name="password" placeholder="Password" autocomplete="current-password" />
+            <img class="login__icon login__icon--right" src="https://www.figma.com/api/mcp/asset/663f7d6c-da9a-4c87-ab54-d1c894ca00bc" alt="Password visibility icon" />
+          </label>
+        </div>
+
+        <a class="login__forgot" href="#">Forgot your password?</a>
+        <button class="login__button" type="submit">Login</button>
+      </form>
+
+      <div class="login__divider" aria-hidden="true"></div>
+
+      <footer class="login__signup">
+        Don't have an account?&nbsp;<a class="login__signup-link" href="#">Sign up</a>
+      </footer>
+    </section>
+  </main>
+
+  <script>
+    const loginForm = document.querySelector('.login__form');
+
+    loginForm.addEventListener('submit', function (event) {
+      event.preventDefault();
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,39 @@
+:root {
+  --bg-deep: #161b27;
+  --bg-panel: #1f2535;
+  --bg-card: #2a3142;
+  --bg-card-hover: #333c52;
+  --gold: #e8a33d;
+  --gold-dim: #8a6a3a;
+  --blood: #c13e3e;
+  --blood-dim: #6e2828;
+  --moss: #5b8c5a;
+  --ink: #eceef2;
+  --ink-dim: #9aa1b5;
+  --ink-faint: #5e6478;
+  --line: #343c52;
+  --font-display: 'Oswald', sans-serif;
+  --font-body: 'Inter', sans-serif;
+  --radius: 10px;
+  --radius-sm: 7px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg-deep);
+  color: var(--ink);
+  font-family: var(--font-body);
+  min-height: 100vh;
+}
+
+a { text-decoration: none; color: inherit; }
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
+
+/* Utilitários */
+.oswald { font-family: var(--font-display); }
+.gold { color: var(--gold); }
+.ink-dim { color: var(--ink-dim); }
+.ink-faint { color: var(--ink-faint); }
