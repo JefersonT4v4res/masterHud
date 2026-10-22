@@ -1,25 +1,34 @@
 export type SystemType = 'dnd5e' | 'tormenta20' | 'custom'
 
 export interface Mesa {
-  id?: number
+  id?: string
   nome: string
   descricao: string
   sistema: SystemType
   status: 'ativa' | 'pausada' | 'encerrada'
   criadaEm: string
   imagemUrl?: string
+  molde: MoldeMesa
+}
+
+export interface BonusAtributo {
+  id: string
+  atributo: string       // ex: "Força", "FOR"
+  valor: number          // pode ser negativo (penalidade)
+  origem: string         // ex: "Anel da Guarda", "Magia de Endurecimento"
 }
 
 export interface Atributo {
   nome: string
-  valor: number
+  valor: number          // valor base
+  abreviacao?: string    // ex: "FOR", "DES"
 }
 
 export interface Ataque {
   id: string
   nome: string
   tipo: 'arma_cac' | 'arma_distancia' | 'magia' | 'habilidade'
-  dados: string
+  dados: string          // agora aceita "1d6+1d4", "2d8+3", etc.
   tipoDano: string
   alcance: string
   custoRecurso?: string
@@ -28,8 +37,7 @@ export interface Ataque {
 }
 
 export interface Personagem {
-  id?: number
-  mesaId: number
+  id?: string
   nome: string
   raca: string
   classe: string
@@ -41,24 +49,42 @@ export interface Personagem {
   tipo: 'jogador' | 'npc' | 'monstro'
   status: 'vivo' | 'morto' | 'inconsciente'
   atributos: Atributo[]
+  bonusAtributos: BonusAtributo[]   // bônus de itens/habilidades
   ataques: Ataque[]
   pericias: Record<string, number>
   inventario: string[]
   notas: string
   imagemUrl?: string
+  imagensEstado?: {
+    normal?: string
+    ferido?: string
+    morto?: string
+  }
   criadoEm: string
   atualizadoEm: string
 }
 
+// Calcula o valor total de um atributo (base + todos os bônus)
+export function calcAtributo(personagem: Personagem, nomeAtributo: string): number {
+  const base = personagem.atributos.find(a =>
+    a.nome === nomeAtributo || a.abreviacao === nomeAtributo
+  )?.valor ?? 0
+  const bonus = (personagem.bonusAtributos || [])
+    .filter(b => b.atributo === nomeAtributo || b.atributo === nomeAtributo)
+    .reduce((sum, b) => sum + b.valor, 0)
+  return base + bonus
+}
+
 export interface CombatParticipant {
-  personagemId: number
+  personagemId: string
   iniciativa: number
   ordemTurno: number
 }
 
+// Mantido só como tipo — usado localmente em FilaItem (location.state do router),
+// não é persistido hoje (ver README, "O que falta").
 export interface Combate {
-  id?: number
-  mesaId: number
+  id?: string
   rodada: number
   turnoAtual: number
   participantes: CombatParticipant[]
@@ -72,8 +98,6 @@ export interface MoldeArmasMagias {
 }
 
 export interface MoldeMesa {
-  id?: number
-  mesaId: number
   atributos: string[]
   camposLivres: string[]
   moldeArmasMagias: MoldeArmasMagias

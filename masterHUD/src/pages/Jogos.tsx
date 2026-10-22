@@ -25,16 +25,18 @@ export const Jogos: React.FC = () => {
 
   useEffect(() => { getMesas().then(setMesas) }, [])
 
+  const filtroStatusMap: Record<Filtro, Mesa['status'] | null> = {
+    todas: null,
+    ativas: 'ativa',
+    pausadas: 'pausada',
+    encerradas: 'encerrada',
+  }
+
   const filtradas = mesas.filter(m => {
-    const passaFiltro = filtro === 'todas' || m.status === filtro.slice(0, -1) as Mesa['status'] || m.status === filtro
+    const statusFiltro = filtroStatusMap[filtro]
+    const passaFiltro = statusFiltro === null || m.status === statusFiltro
     const passaBusca = m.nome.toLowerCase().includes(busca.toLowerCase())
     return passaFiltro && passaBusca
-  }).filter(m => {
-    if (filtro === 'todas') return true
-    if (filtro === 'ativas') return m.status === 'ativa'
-    if (filtro === 'pausadas') return m.status === 'pausada'
-    if (filtro === 'encerradas') return m.status === 'encerrada'
-    return true
   })
 
   return (

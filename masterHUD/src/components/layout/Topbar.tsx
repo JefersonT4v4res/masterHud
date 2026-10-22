@@ -1,5 +1,6 @@
 import React from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import masterhudIcon from '../../assets/masterhud-icon.png'
 
 interface Crumb { label: string; to?: string }
 
@@ -22,13 +23,7 @@ export const Topbar: React.FC<TopbarProps> = ({ crumbs, right }) => {
           onClick={() => navigate('/')}
           style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}
         >
-          <div style={{
-            width: 30, height: 30, display: 'grid', placeItems: 'center',
-            background: 'var(--gold)',
-            clipPath: 'polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%)',
-            color: 'var(--bg-deep)', fontWeight: 700, fontSize: 13,
-            fontFamily: 'var(--font-display)',
-          }}>8</div>
+          <img src={masterhudIcon} alt="" width={30} height={30} style={{ borderRadius: 7, flexShrink: 0 }} />
           <span style={{ fontFamily: 'var(--font-display)', fontSize: 20 }}>
             Master<b style={{ color: 'var(--gold)' }}>HUD</b>
           </span>

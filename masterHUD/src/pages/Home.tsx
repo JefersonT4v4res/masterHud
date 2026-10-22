@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Topbar } from '../components/layout/Topbar'
-import { Button, Badge, Panel } from '../components/ui'
+import { UserMenu } from '../components/layout/UserMenu'
+import { Button, Badge, Panel, Avatar } from '../components/ui'
 import { getMesas } from '../db'
+import { useAuth } from '../context/AuthContext'
 import type { Mesa } from '../types'
 
 const statusColor: Record<Mesa['status'], 'moss' | 'neutral' | 'blood'> = {
@@ -14,6 +16,8 @@ const statusLabel: Record<Mesa['status'], string> = {
 
 export const Home: React.FC = () => {
   const navigate = useNavigate()
+  const { user } = useAuth()
+  const nomeUsuario = user?.displayName || user?.email || 'Usuário'
   const [mesas, setMesas] = useState<Mesa[]>([])
 
   useEffect(() => { getMesas().then(setMesas) }, [])
@@ -23,28 +27,18 @@ export const Home: React.FC = () => {
 
   return (
     <div style={{ minHeight: '100vh' }}>
-      <Topbar right={
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{
-            width: 32, height: 32, borderRadius: '50%',
-            background: 'var(--gold-dim)', display: 'grid', placeItems: 'center',
-            fontFamily: 'var(--font-display)', color: 'var(--bg-deep)', fontWeight: 700,
-          }}>M</div>
-          <span style={{ fontSize: 13, color: 'var(--ink-dim)' }}>Mestre</span>
-        </div>
-      } />
+      <Topbar right={<UserMenu />} />
 
       <div style={{ maxWidth: 1200, margin: '0 auto', padding: '28px 32px', display: 'grid', gridTemplateColumns: '1fr 300px', gap: 22 }}>
         {/* Conteúdo principal */}
         <div>
           <div style={{ fontFamily: 'var(--font-display)', fontSize: 26, fontWeight: 600, marginBottom: 4 }}>
-            Bem-vindo, Mestre
+            Bem-vindo, {nomeUsuario.split(' ')[0]}
           </div>
           <div style={{ color: 'var(--ink-dim)', fontSize: 14, marginBottom: 24 }}>
             Você tem <span style={{ color: 'var(--gold)', fontWeight: 600 }}>{ativas.length} {ativas.length === 1 ? 'mesa ativa' : 'mesas ativas'}</span>
             {pausadas.length > 0 && ` e ${pausadas.length} pausada${pausadas.length > 1 ? 's' : ''}`}.
           </div>
-
           {/* Ações rápidas */}
           <div style={{ fontSize: 11, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'var(--ink-faint)', marginBottom: 14 }}>
             Ações rápidas
@@ -123,13 +117,12 @@ export const Home: React.FC = () => {
 
         {/* Sidebar perfil */}
         <Panel style={{ textAlign: 'center', alignSelf: 'start' }}>
-          <div style={{
-            width: 80, height: 80, borderRadius: '50%', margin: '0 auto 14px',
-            background: 'var(--gold-dim)', display: 'grid', placeItems: 'center',
-            border: '2px solid var(--gold)',
-            fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--bg-deep)', fontSize: 28,
-          }}>M</div>
-          <div style={{ fontFamily: 'var(--font-display)', fontSize: 19, fontWeight: 600, marginBottom: 6 }}>Mestre</div>
+          <div onClick={() => navigate('/perfil')} style={{ cursor: 'pointer' }}>
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 14 }}>
+              <Avatar nome={nomeUsuario} size={80} border="2px solid var(--gold)" />
+            </div>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 19, fontWeight: 600, marginBottom: 6 }}>{nomeUsuario}</div>
+          </div>
           <div style={{ fontSize: 12, color: 'var(--ink-faint)', marginBottom: 20 }}>
             {mesas.length} mesa{mesas.length !== 1 ? 's' : ''} criada{mesas.length !== 1 ? 's' : ''}
           </div>

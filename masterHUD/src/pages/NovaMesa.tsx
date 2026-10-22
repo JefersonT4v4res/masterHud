@@ -2,11 +2,10 @@ import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Topbar } from '../components/layout/Topbar'
 import { Button, Input, Textarea, Select, Panel, PanelTitle, Toast } from '../components/ui'
-import { createMesa, saveMolde } from '../db'
+import { createMesa } from '../db'
 import type { SystemType, MoldeMesa } from '../types'
 
-const defaultMolde = (mesaId: number): MoldeMesa => ({
-  mesaId,
+const defaultMolde = (): MoldeMesa => ({
   atributos: ['Força', 'Destreza', 'Constituição', 'Inteligência', 'Sabedoria', 'Carisma'],
   camposLivres: ['História & notas'],
   moldeArmasMagias: {
@@ -33,9 +32,8 @@ export const NovaMesa: React.FC = () => {
         sistema,
         status: 'ativa',
         criadaEm: new Date().toISOString(),
-      }) as number
-
-      await saveMolde(defaultMolde(id))
+        molde: defaultMolde(),
+      })
 
       setToast(true)
       setTimeout(() => navigate(`/mesa/${id}`), 1200)

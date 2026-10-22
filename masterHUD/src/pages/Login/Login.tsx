@@ -1,74 +1,144 @@
+import { useEffect, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
+import { Topbar } from '../../components/layout/Topbar';
+import { IconEye, IconEyeOff, IconLock, IconMail } from '../../components/icons';
+import { SESSION_EXPIRED_KEY } from '../../db';
+import masterhudIconLg from '../../assets/masterhud-icon-lg.png';
 import styles from './Login.module.css';
 
 export function Login() {
-  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+  const { login, resetPassword } = useAuth();
+  const navigate = useNavigate();
+
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+  const [aviso, setAviso] = useState<string | null>(null);
+  const [carregando, setCarregando] = useState(false);
+
+  useEffect(() => {
+    if (sessionStorage.getItem(SESSION_EXPIRED_KEY)) {
+      sessionStorage.removeItem(SESSION_EXPIRED_KEY);
+      setErro('Sua sessão expirou. Faça login novamente.');
+    }
+  }, []);
+
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    // Adicionar lógica de login aqui
-    console.log('Form submitted');
+    setErro(null);
+    setAviso(null);
+    setCarregando(true);
+    try {
+      await login(email, password);
+      navigate('/');
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Não foi possível entrar.');
+    } finally {
+      setCarregando(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    setErro(null);
+    setAviso(null);
+    if (!email) {
+      setErro('Digite seu email acima para recuperar a senha.');
+      return;
+    }
+    try {
+      await resetPassword(email);
+      setAviso('Enviamos um email com instruções para redefinir sua senha.');
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Não foi possível enviar o email.');
+    }
   };
 
   return (
-    <main className={styles.page}>
-      <section className={styles.login} aria-labelledby="login-title">
-        <h1 className={styles.login__title} id="login-title">
-          Login to Master Hud
-        </h1>
+    <div className={styles.page}>
+      <Topbar />
+      <main className={styles.content}>
+        <section className={styles.login} aria-labelledby="login-title">
+          <img src={masterhudIconLg} alt="" className={styles.login__mark} />
+          <h1 className={styles.login__title} id="login-title">
+            Entrar no MasterHUD
+          </h1>
 
-        <form className={styles.login__form} onSubmit={handleSubmit}>
-          <div className={styles.login__fields}>
-            <label className={styles.login__field}>
-              <img
-                className={`${styles.login__icon} ${styles['login__icon--left']}`}
-                src="https://www.figma.com/api/mcp/asset/8fcd7a6b-411e-4e60-88d1-2baafcdf2acf"
-                alt="Email icon"
-              />
-              <input
-                className={styles.login__input}
-                type="email"
-                name="email"
-                placeholder="Email"
-                autoComplete="email"
-              />
-            </label>
+          <form className={styles.login__form} onSubmit={handleSubmit}>
+            <div className={styles.login__fields}>
+              <label className={styles.login__field}>
+                <IconMail
+                  className={`${styles.login__icon} ${styles['login__icon--left']}`}
+                  aria-hidden="true"
+                />
+                <input
+                  className={styles.login__input}
+                  type="email"
+                  name="email"
+                  placeholder="Email"
+                  autoComplete="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                />
+              </label>
 
-            <label className={styles.login__field}>
-              <img
-                className={`${styles.login__icon} ${styles['login__icon--left']}`}
-                src="https://www.figma.com/api/mcp/asset/369f0bcf-641c-44d1-8a9e-ab24521f5a14"
-                alt="Password icon"
-              />
-              <input
-                className={styles.login__input}
-                type="password"
-                name="password"
-                placeholder="Password"
-                autoComplete="current-password"
-              />
-              <img
-                className={`${styles.login__icon} ${styles['login__icon--right']}`}
-                src="https://www.figma.com/api/mcp/asset/663f7d6c-da9a-4c87-ab54-d1c894ca00bc"
-                alt="Password visibility icon"
-              />
-            </label>
-          </div>
+              <label className={styles.login__field}>
+                <IconLock
+                  className={`${styles.login__icon} ${styles['login__icon--left']}`}
+                  aria-hidden="true"
+                />
+                <input
+                  className={styles.login__input}
+                  type={showPassword ? 'text' : 'password'}
+                  name="password"
+                  placeholder="Senha"
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                  className={styles.login__eyeButton}
+                >
+                  {showPassword ? <IconEyeOff width={18} height={18} /> : <IconEye width={18} height={18} />}
+                </button>
+              </label>
+            </div>
 
-          <a className={styles.login__forgot} href="#">
-            Forgot your password?
-          </a>
-          <button className={styles.login__button} type="submit">
-            Login
-          </button>
-        </form>
+            {erro && <p role="alert" className={styles.login__message}>{erro}</p>}
+            {aviso && (
+              <p role="status" className={`${styles.login__message} ${styles['login__message--success']}`}>
+                {aviso}
+              </p>
+            )}
 
-        <div className={styles.login__divider} aria-hidden="true"></div>
+            <button
+              type="button"
+              className={styles.login__forgot}
+              onClick={handleForgotPassword}
+            >
+              Esqueceu sua senha?
+            </button>
+            <button className={styles.login__button} type="submit" disabled={carregando}>
+              {carregando ? 'Entrando…' : 'Entrar'}
+            </button>
+          </form>
 
-        <footer className={styles.login__signup}>
-          Don't have an account?&nbsp;
-          <a className={styles.login__signup_link} href="#">
-            Sign up
-          </a>
-        </footer>
-      </section>
-    </main>
+          <div className={styles.login__divider} aria-hidden="true"></div>
+
+          <footer className={styles.login__signup}>
+            Não tem uma conta?&nbsp;
+            <Link className={styles['login__signup-link']} to="/register">
+              Cadastre-se
+            </Link>
+          </footer>
+        </section>
+      </main>
+    </div>
   );
 }

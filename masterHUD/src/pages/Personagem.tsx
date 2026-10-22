@@ -2,18 +2,22 @@ import React, { useEffect, useState, useCallback, useRef } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Topbar } from '../components/layout/Topbar'
 import { Button, Input, Textarea, Select, Panel, PanelTitle, HpBar, XpBar, Toast, Modal } from '../components/ui'
-import { getPersonagem, createPersonagem, updatePersonagem, getMesa, getMolde } from '../db'
-import type { Personagem as TPersonagem, MoldeMesa, Ataque } from '../types'
+import { getPersonagem, createPersonagem, updatePersonagem, getMesa } from '../db'
+import type { Personagem as TPersonagem, MoldeMesa, Ataque, BonusAtributo } from '../types'
+import { calcAtributo } from '../types'
 
 // ── Helpers ──────────────────────────────────────────────────────────
-const defaultAtributos = (nomes: string[]) => nomes.map(nome => ({ nome, valor: 10 }))
+const defaultAtributos = (nomes: string[]) => nomes.map(nome => ({
+  nome, valor: 0, abreviacao: nome.slice(0, 3).toUpperCase(),
+}))
 
-const defaultPersonagem = (mesaId: number, tipo: 'jogador' | 'npc' | 'monstro', atrs: string[]): Omit<TPersonagem, 'id'> => ({
-  mesaId, tipo, nome: '', raca: '', classe: '', nivel: 1,
+const defaultPersonagem = (tipo: 'jogador' | 'npc' | 'monstro', atrs: string[]): Omit<TPersonagem, 'id'> => ({
+  tipo, nome: '', raca: '', classe: '', nivel: 1,
   xp: 0, xpProximoNivel: 300,
   hpAtual: 10, hpMaximo: 10,
   status: 'vivo',
   atributos: defaultAtributos(atrs),
+  bonusAtributos: [],
   ataques: [], pericias: {},
   notas: '',
   inventario: [],
@@ -40,35 +44,82 @@ function fileToBase64(file: File): Promise<string> {
   })
 }
 
+// ── ImageUploadCircle ─────────────────────────────────────────────────
+const ImageUploadCircle: React.FC<{
+  src?: string
+  label: string
+  onClick: () => void
+  size?: number
+  tint?: 'gold' | 'blood'
+  fallbackIcon?: string
+}> = ({ src, label, onClick, size = 80, tint, fallbackIcon = '+' }) => {
+  const borderColor = tint === 'gold' ? 'var(--gold-dim)' : tint === 'blood' ? 'var(--blood-dim)' : 'var(--gold-dim)'
+  return (
+    <div>
+      <div
+        onClick={onClick}
+        style={{
+          width: size, height: size, borderRadius: '50%',
+          border: `2px dashed ${borderColor}`,
+          margin: '0 auto 6px',
+          cursor: 'pointer', overflow: 'hidden',
+          display: 'grid', placeItems: 'center',
+          background: 'var(--bg-card)', position: 'relative',
+        }}
+      >
+        {src ? (
+          <img src={src} alt={label} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        ) : (
+          <span style={{ fontSize: size * 0.3, color: 'var(--ink-faint)', userSelect: 'none' }}>
+            {fallbackIcon}
+          </span>
+        )}
+        <div style={{
+          position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.45)',
+          display: 'grid', placeItems: 'center', opacity: 0, transition: 'opacity 0.15s',
+          fontSize: 10, color: 'var(--ink)', textAlign: 'center',
+        }}
+          onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
+          onMouseLeave={e => (e.currentTarget.style.opacity = '0')}
+        >{src ? 'Trocar' : 'Adicionar'}</div>
+      </div>
+      <div style={{ fontSize: 10, color: 'var(--ink-faint)', textAlign: 'center' }}>{label}</div>
+    </div>
+  )
+}
+
 // ── PersonagemForm ────────────────────────────────────────────────────
 export const PersonagemForm: React.FC = () => {
-  const { id: mesaIdStr, personagemId } = useParams<{ id: string; personagemId?: string }>()
-  const mesaId = Number(mesaIdStr)
+  const { id, personagemId } = useParams<{ id: string; personagemId?: string }>()
+  const mesaId = id!
   const isEdit = !!personagemId
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const tipoParam = (searchParams.get('tipo') as 'jogador' | 'npc') || 'jogador'
   const imgInputRef = useRef<HTMLInputElement>(null)
+  const imgFerido   = useRef<HTMLInputElement>(null)
+  const imgMorto    = useRef<HTMLInputElement>(null)
 
   const [molde, setMolde]       = useState<MoldeMesa | null>(null)
   const [form, setForm]         = useState<Omit<TPersonagem, 'id'> | null>(null)
   const [toast, setToast]       = useState(false)
   const [salvando, setSalvando] = useState(false)
   const [mesaNome, setMesaNome] = useState('')
-  const [ataqueModal, setAtaqueModal] = useState(false)
+  const [ataqueModal, setAtaqueModal]   = useState(false)
   const [editandoAtaque, setEditandoAtaque] = useState<Ataque | null>(null)
-  const [novoItem, setNovoItem] = useState('')
+  const [novoItem, setNovoItem]         = useState('')
+  const [novoBonus, setNovoBonus]       = useState({ atributo: '', valor: 0, origem: '' })
 
   const load = useCallback(async () => {
-    const [m, mo] = await Promise.all([getMesa(mesaId), getMolde(mesaId)])
+    const m = await getMesa(mesaId)
     if (m) setMesaNome(m.nome)
-    const atrs = mo?.atributos || ['Força', 'Destreza', 'Constituição', 'Inteligência', 'Sabedoria', 'Carisma']
-    setMolde(mo || null)
+    const atrs = m?.molde?.atributos || ['Força', 'Destreza', 'Constituição', 'Inteligência', 'Sabedoria', 'Carisma']
+    setMolde(m?.molde || null)
     if (isEdit && personagemId) {
-      const p = await getPersonagem(Number(personagemId))
-      if (p) setForm({ ...p, inventario: (p as any).inventario || [] })
+      const p = await getPersonagem(mesaId, personagemId)
+      if (p) setForm({ ...p, inventario: (p as any).inventario || [], bonusAtributos: p.bonusAtributos || [] })
     } else {
-      setForm(defaultPersonagem(mesaId, tipoParam, atrs))
+      setForm(defaultPersonagem(tipoParam, atrs))
     }
   }, [mesaId, personagemId, isEdit, tipoParam])
 
@@ -83,11 +134,39 @@ export const PersonagemForm: React.FC = () => {
       atributos: prev.atributos.map(a => a.nome === nome ? { ...a, valor } : a),
     } : prev)
 
+  const addBonus = () => {
+    if (!novoBonus.atributo || !novoBonus.origem || !form) return
+    const bonus: BonusAtributo = { id: crypto.randomUUID(), ...novoBonus }
+    update('bonusAtributos', [...(form.bonusAtributos || []), bonus])
+    setNovoBonus({ atributo: '', valor: 0, origem: '' })
+  }
+
+  const removeBonus = (id: string) => {
+    if (!form) return
+    update('bonusAtributos', (form.bonusAtributos || []).filter((b: BonusAtributo) => b.id !== id))
+  }
+
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
     const base64 = await fileToBase64(file)
     update('imagemUrl', base64)
+  }
+
+  const handleImageEstadoUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+    estado: 'normal' | 'ferido' | 'morto'
+  ) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const base64 = await fileToBase64(file)
+    setForm(prev => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        imagensEstado: { ...(prev.imagensEstado || {}), [estado]: base64 },
+      }
+    })
   }
 
   const handleSave = async () => {
@@ -96,9 +175,9 @@ export const PersonagemForm: React.FC = () => {
     try {
       const payload = { ...form, atualizadoEm: new Date().toISOString() }
       if (isEdit && personagemId) {
-        await updatePersonagem(Number(personagemId), payload)
+        await updatePersonagem(mesaId, personagemId, payload)
       } else {
-        await createPersonagem(payload)
+        await createPersonagem(mesaId, payload)
       }
       setToast(true)
       setTimeout(() => navigate(`/mesa/${mesaId}`), 1000)
@@ -169,41 +248,49 @@ export const PersonagemForm: React.FC = () => {
             <Panel>
               <PanelTitle>{isEdit ? 'Editar' : 'Novo'} {tipoLabel}</PanelTitle>
 
-              {/* Upload de imagem */}
-              <div style={{ textAlign: 'center', margin: '14px 0' }}>
-                <div
-                  onClick={() => imgInputRef.current?.click()}
-                  style={{
-                    width: 90, height: 90, borderRadius: '50%',
-                    border: '2px dashed var(--gold-dim)',
-                    margin: '0 auto 10px',
-                    cursor: 'pointer',
-                    overflow: 'hidden',
-                    display: 'grid', placeItems: 'center',
-                    background: 'var(--bg-card)',
-                    position: 'relative',
-                  }}
-                >
-                  {form.imagemUrl ? (
-                    <img src={form.imagemUrl} alt="avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  ) : (
-                    <span style={{ fontSize: 24, color: 'var(--ink-faint)' }}>+</span>
-                  )}
-                  <div style={{
-                    position: 'absolute', inset: 0,
-                    background: 'rgba(0,0,0,0.4)',
-                    display: 'grid', placeItems: 'center',
-                    opacity: 0, transition: 'opacity 0.15s',
-                    fontSize: 11, color: 'var(--ink)',
-                  }}
-                    onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
-                    onMouseLeave={e => (e.currentTarget.style.opacity = '0')}
-                  >
-                    Trocar
+              {/* Upload de imagens por estado */}
+              <div style={{ margin: '14px 0' }}>
+                {/* Imagem principal / estado normal */}
+                <div style={{ textAlign: 'center', marginBottom: 14 }}>
+                  <ImageUploadCircle
+                    src={form.imagemUrl}
+                    label="Normal (principal)"
+                    onClick={() => imgInputRef.current?.click()}
+                    size={80}
+                  />
+                  <input ref={imgInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleImageUpload} />
+                </div>
+
+                {/* Imagens de estado: ferido e morto */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <div style={{ textAlign: 'center' }}>
+                    <ImageUploadCircle
+                      src={form.imagensEstado?.ferido}
+                      label="Ferido (≤30% HP)"
+                      onClick={() => imgFerido.current?.click()}
+                      size={60}
+                      tint="gold"
+                      fallbackIcon="🤕"
+                    />
+                    <input ref={imgFerido} type="file" accept="image/*" style={{ display: 'none' }}
+                      onChange={e => handleImageEstadoUpload(e, 'ferido')} />
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <ImageUploadCircle
+                      src={form.imagensEstado?.morto}
+                      label="Morto (0 HP)"
+                      onClick={() => imgMorto.current?.click()}
+                      size={60}
+                      tint="blood"
+                      fallbackIcon="💀"
+                    />
+                    <input ref={imgMorto} type="file" accept="image/*" style={{ display: 'none' }}
+                      onChange={e => handleImageEstadoUpload(e, 'morto')} />
                   </div>
                 </div>
-                <input ref={imgInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleImageUpload} />
-                <div style={{ fontSize: 11, color: 'var(--ink-faint)' }}>Clique para adicionar foto</div>
+                <div style={{ fontSize: 11, color: 'var(--ink-faint)', textAlign: 'center', marginTop: 8, lineHeight: 1.4 }}>
+                  Sem foto de estado, o app aplica efeito automático na imagem principal.
+                </div>
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -245,18 +332,86 @@ export const PersonagemForm: React.FC = () => {
               <PanelTitle>Atributos</PanelTitle>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10, marginTop: 14 }}>
                 {atrs.map(nome => {
-                  const atr = form.atributos.find(a => a.nome === nome)
+                  const atr   = form.atributos.find(a => a.nome === nome)
+                  const bonus = (form.bonusAtributos || [])
+                    .filter((b: BonusAtributo) => b.atributo === nome)
+                    .reduce((s: number, b: BonusAtributo) => s + b.valor, 0)
+                  const total = (atr?.valor ?? 0) + bonus
                   return (
-                    <div key={nome} style={{ background: 'var(--bg-card)', border: '1px solid var(--line)', borderRadius: 8, padding: '10px 8px', textAlign: 'center' }}>
-                      <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--ink-faint)', marginBottom: 6 }}>{nome}</div>
+                    <div key={nome} style={{
+                      background: 'var(--bg-card)', border: `1px solid ${bonus !== 0 ? 'var(--gold-dim)' : 'var(--line)'}`,
+                      borderRadius: 8, padding: '10px 8px', textAlign: 'center', position: 'relative',
+                    }}>
+                      <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--ink-faint)', marginBottom: 4 }}>{nome}</div>
                       <input
-                        type="number" value={atr?.valor ?? 10}
+                        type="number" value={atr?.valor ?? 0}
                         onChange={e => updateAtributo(nome, Number(e.target.value))}
                         style={{ width: '100%', background: 'none', border: 'none', color: 'var(--ink)', textAlign: 'center', fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700, outline: 'none' }}
                       />
+                      {bonus !== 0 && (
+                        <div style={{ fontSize: 10, color: bonus > 0 ? 'var(--moss)' : 'var(--blood)' }}>
+                          {bonus > 0 ? '+' : ''}{bonus} bônus → <b style={{ color: 'var(--gold)' }}>{total}</b>
+                        </div>
+                      )}
                     </div>
                   )
                 })}
+              </div>
+
+              {/* Bônus de atributos */}
+              <div style={{ marginTop: 16 }}>
+                <div style={{ fontSize: 11, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--ink-faint)', marginBottom: 10 }}>
+                  Bônus de itens &amp; habilidades
+                </div>
+                {(form.bonusAtributos || []).length === 0 ? (
+                  <div style={{ fontSize: 12.5, color: 'var(--ink-faint)', textAlign: 'center', padding: '8px 0' }}>
+                    Nenhum bônus ativo.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
+                    {(form.bonusAtributos || []).map((b: BonusAtributo) => (
+                      <div key={b.id} style={{
+                        display: 'flex', alignItems: 'center', gap: 8,
+                        background: 'var(--bg-card)', border: '1px solid var(--line)',
+                        borderRadius: 7, padding: '7px 10px', fontSize: 13,
+                      }}>
+                        <span style={{ color: b.valor > 0 ? 'var(--moss)' : 'var(--blood)', fontFamily: 'var(--font-display)', fontWeight: 700, minWidth: 32 }}>
+                          {b.valor > 0 ? '+' : ''}{b.valor}
+                        </span>
+                        <span style={{ color: 'var(--gold)', fontWeight: 600 }}>{b.atributo}</span>
+                        <span style={{ color: 'var(--ink-faint)', flex: 1, fontSize: 12 }}>{b.origem}</span>
+                        <span style={{ color: 'var(--ink-faint)', cursor: 'pointer', fontSize: 14, padding: '0 4px' }}
+                          onClick={() => removeBonus(b.id)}>✕</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {/* Adicionar bônus */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 60px 1fr auto', gap: 6, alignItems: 'end' }}>
+                  <Select
+                    label="Atributo"
+                    value={novoBonus.atributo}
+                    onChange={e => setNovoBonus(b => ({ ...b, atributo: e.target.value }))}
+                  >
+                    <option value="">—</option>
+                    {atrs.map(a => <option key={a} value={a}>{a}</option>)}
+                  </Select>
+                  <Input
+                    label="Valor"
+                    type="number"
+                    value={novoBonus.valor}
+                    onChange={e => setNovoBonus(b => ({ ...b, valor: Number(e.target.value) }))}
+                  />
+                  <Input
+                    label="Origem (item/habilidade)"
+                    value={novoBonus.origem}
+                    onChange={e => setNovoBonus(b => ({ ...b, origem: e.target.value }))}
+                    placeholder="Ex: Anel da Guarda"
+                  />
+                  <Button size="sm" onClick={addBonus} disabled={!novoBonus.atributo || !novoBonus.origem} style={{ alignSelf: 'flex-end' }}>
+                    +
+                  </Button>
+                </div>
               </div>
             </Panel>
 
@@ -367,14 +522,15 @@ export const PersonagemForm: React.FC = () => {
 
 // ── FichaPersonagem (visualização) ────────────────────────────────────
 export const FichaPersonagem: React.FC = () => {
-  const { id: mesaIdStr, personagemId } = useParams<{ id: string; personagemId: string }>()
-  const mesaId = Number(mesaIdStr)
+  const { id, personagemId: pid } = useParams<{ id: string; personagemId: string }>()
+  const mesaId = id!
+  const personagemId = pid!
   const navigate = useNavigate()
   const [personagem, setPersonagem] = useState<TPersonagem | null>(null)
   const [mesaNome, setMesaNome] = useState('')
 
   useEffect(() => {
-    Promise.all([getMesa(mesaId), getPersonagem(Number(personagemId))]).then(([m, p]) => {
+    Promise.all([getMesa(mesaId), getPersonagem(mesaId, personagemId)]).then(([m, p]) => {
       if (m) setMesaNome(m.nome)
       if (p) setPersonagem(p)
     })
