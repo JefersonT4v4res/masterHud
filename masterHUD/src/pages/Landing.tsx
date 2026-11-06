@@ -21,9 +21,9 @@ const features = [
     desc: 'Atributos, ataques, perícias e inventário para jogadores, NPCs e monstros.',
   },
   {
-    icon: '🎬',
-    title: 'Overlay para stream',
-    desc: 'Mostre o status dos personagens ao vivo direto no OBS.',
+    icon: '🔑',
+    title: 'Mesas compartilhadas',
+    desc: 'Convide jogadores por código — cada um com sua própria ficha, sem ver os segredos do mestre.',
   },
 ]
 
