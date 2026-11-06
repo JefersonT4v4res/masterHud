@@ -9,6 +9,37 @@ export interface Mesa {
   criadaEm: string
   imagemUrl?: string
   molde: MoldeMesa
+  membros: string[]
+  conviteCodigo?: string
+}
+
+// Doc em `convites/{codigo}` — resolve um código pra mesa sem precisar de query.
+export interface Convite {
+  donoUid: string
+  mesaId: string
+  mesaNome: string
+  sistema: SystemType
+  criadoEm: string
+}
+
+// Doc em `usuarios/{uid}/mesas/{mesaId}/resumo/jogadores` — projeção mínima e
+// pública-entre-membros, só personagens tipo 'jogador'. Nunca inclui NPC/monstro
+// nem campos além dos listados aqui (é isso que torna a privacidade real).
+export interface ResumoJogador {
+  id: string
+  nome: string
+  hpAtual: number
+  hpMaximo: number
+  imagemUrl?: string
+  tipo: 'jogador'
+}
+
+// Doc em `usuarios/{meuUid}/mesasParticipando/{mesaId}` — índice pessoal de
+// "em quais mesas eu entrei como jogador".
+export interface MesaParticipando {
+  donoUid: string
+  personagemId?: string
+  entradoEm: string
 }
 
 export interface BonusAtributo {
@@ -62,6 +93,9 @@ export interface Personagem {
   }
   criadoEm: string
   atualizadoEm: string
+  // uid do jogador dono dessa ficha. null = slot 'jogador' ainda não reivindicado.
+  // Sempre undefined/ausente em NPCs e monstros.
+  jogadorUid?: string | null
 }
 
 // Calcula o valor total de um atributo (base + todos os bônus)

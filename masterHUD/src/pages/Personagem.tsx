@@ -2,7 +2,8 @@ import React, { useEffect, useState, useCallback, useRef } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Topbar } from '../components/layout/Topbar'
 import { Button, Input, Textarea, Select, Panel, PanelTitle, HpBar, XpBar, Toast, Modal } from '../components/ui'
-import { getPersonagem, createPersonagem, updatePersonagem, getMesa } from '../db'
+import { getPersonagem, createPersonagem, updatePersonagem, getMesa, vincularPersonagemParticipando } from '../db'
+import { auth } from '../firebase'
 import type { Personagem as TPersonagem, MoldeMesa, Ataque, BonusAtributo } from '../types'
 import { calcAtributo } from '../types'
 
@@ -11,7 +12,9 @@ const defaultAtributos = (nomes: string[]) => nomes.map(nome => ({
   nome, valor: 0, abreviacao: nome.slice(0, 3).toUpperCase(),
 }))
 
-const defaultPersonagem = (tipo: 'jogador' | 'npc' | 'monstro', atrs: string[]): Omit<TPersonagem, 'id'> => ({
+const defaultPersonagem = (
+  tipo: 'jogador' | 'npc' | 'monstro', atrs: string[], jogadorUid: string | null = null
+): Omit<TPersonagem, 'id'> => ({
   tipo, nome: '', raca: '', classe: '', nivel: 1,
   xp: 0, xpProximoNivel: 300,
   hpAtual: 10, hpMaximo: 10,
@@ -23,6 +26,7 @@ const defaultPersonagem = (tipo: 'jogador' | 'npc' | 'monstro', atrs: string[]):
   inventario: [],
   criadoEm: new Date().toISOString(),
   atualizadoEm: new Date().toISOString(),
+  ...(tipo === 'jogador' ? { jogadorUid } : {}),
 })
 
 function newAtaque(): Ataque {
@@ -90,12 +94,15 @@ const ImageUploadCircle: React.FC<{
 
 // ── PersonagemForm ────────────────────────────────────────────────────
 export const PersonagemForm: React.FC = () => {
-  const { id, personagemId } = useParams<{ id: string; personagemId?: string }>()
+  const { donoUid: dUid, id, personagemId } = useParams<{ donoUid: string; id: string; personagemId?: string }>()
+  const donoUid = dUid!
   const mesaId = id!
+  const meuUid = auth.currentUser!.uid
+  const souDono = donoUid === meuUid
   const isEdit = !!personagemId
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const tipoParam = (searchParams.get('tipo') as 'jogador' | 'npc') || 'jogador'
+  const tipoParam = souDono ? ((searchParams.get('tipo') as 'jogador' | 'npc') || 'jogador') : 'jogador'
   const imgInputRef = useRef<HTMLInputElement>(null)
   const imgFerido   = useRef<HTMLInputElement>(null)
   const imgMorto    = useRef<HTMLInputElement>(null)
@@ -104,6 +111,7 @@ export const PersonagemForm: React.FC = () => {
   const [form, setForm]         = useState<Omit<TPersonagem, 'id'> | null>(null)
   const [toast, setToast]       = useState(false)
   const [salvando, setSalvando] = useState(false)
+  const [erro, setErro]         = useState<string | null>(null)
   const [mesaNome, setMesaNome] = useState('')
   const [ataqueModal, setAtaqueModal]   = useState(false)
   const [editandoAtaque, setEditandoAtaque] = useState<Ataque | null>(null)
@@ -111,17 +119,17 @@ export const PersonagemForm: React.FC = () => {
   const [novoBonus, setNovoBonus]       = useState({ atributo: '', valor: 0, origem: '' })
 
   const load = useCallback(async () => {
-    const m = await getMesa(mesaId)
+    const m = await getMesa(donoUid, mesaId)
     if (m) setMesaNome(m.nome)
     const atrs = m?.molde?.atributos || ['Força', 'Destreza', 'Constituição', 'Inteligência', 'Sabedoria', 'Carisma']
     setMolde(m?.molde || null)
     if (isEdit && personagemId) {
-      const p = await getPersonagem(mesaId, personagemId)
+      const p = await getPersonagem(donoUid, mesaId, personagemId)
       if (p) setForm({ ...p, inventario: (p as any).inventario || [], bonusAtributos: p.bonusAtributos || [] })
     } else {
-      setForm(defaultPersonagem(tipoParam, atrs))
+      setForm(defaultPersonagem(tipoParam, atrs, souDono ? null : meuUid))
     }
-  }, [mesaId, personagemId, isEdit, tipoParam])
+  }, [donoUid, mesaId, personagemId, isEdit, tipoParam])
 
   useEffect(() => { load() }, [load])
 
@@ -172,15 +180,19 @@ export const PersonagemForm: React.FC = () => {
   const handleSave = async () => {
     if (!form || !form.nome.trim()) return
     setSalvando(true)
+    setErro(null)
     try {
       const payload = { ...form, atualizadoEm: new Date().toISOString() }
       if (isEdit && personagemId) {
-        await updatePersonagem(mesaId, personagemId, payload)
+        await updatePersonagem(donoUid, mesaId, personagemId, payload)
       } else {
-        await createPersonagem(mesaId, payload)
+        const novoId = await createPersonagem(donoUid, mesaId, payload)
+        if (!souDono) await vincularPersonagemParticipando(mesaId, novoId)
       }
       setToast(true)
-      setTimeout(() => navigate(`/mesa/${mesaId}`), 1000)
+      setTimeout(() => navigate(`/mesa/${donoUid}/${mesaId}`), 1000)
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Não foi possível salvar o personagem.')
     } finally {
       setSalvando(false)
     }
@@ -227,12 +239,12 @@ export const PersonagemForm: React.FC = () => {
       <Topbar
         crumbs={[
           { label: 'Início', to: '/' },
-          { label: mesaNome, to: `/mesa/${mesaId}` },
+          { label: mesaNome, to: `/mesa/${donoUid}/${mesaId}` },
           { label: isEdit ? 'Editar personagem' : `Criar ${tipoLabel}` },
         ]}
         right={
           <div style={{ display: 'flex', gap: 10 }}>
-            <Button variant="ghost" onClick={() => navigate(`/mesa/${mesaId}`)}>Cancelar</Button>
+            <Button variant="ghost" onClick={() => navigate(`/mesa/${donoUid}/${mesaId}`)}>Cancelar</Button>
             <Button onClick={handleSave} disabled={!form.nome.trim() || salvando}>
               {salvando ? 'Salvando...' : isEdit ? 'Salvar alterações' : 'Criar personagem'}
             </Button>
@@ -241,6 +253,11 @@ export const PersonagemForm: React.FC = () => {
       />
 
       <div style={{ maxWidth: 980, margin: '0 auto', padding: '26px 32px' }}>
+        {erro && (
+          <div style={{ color: '#e07a7a', fontSize: 13, background: 'var(--bg-card)', border: '1px solid var(--blood-dim)', borderRadius: 9, padding: '10px 14px', marginBottom: 16 }}>
+            {erro}
+          </div>
+        )}
         <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 20, marginBottom: 20 }}>
 
           {/* Coluna identidade */}
@@ -299,11 +316,15 @@ export const PersonagemForm: React.FC = () => {
                 <Input label="Classe" value={form.classe} onChange={e => update('classe', e.target.value)} placeholder="Ex: Guerreiro, Mago..." />
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                   <Input label="Nível" type="number" value={form.nivel} onChange={e => update('nivel', Number(e.target.value))} />
-                  <Select label="Tipo" value={form.tipo} onChange={e => update('tipo', e.target.value as TPersonagem['tipo'])}>
-                    <option value="jogador">Jogador</option>
-                    <option value="npc">NPC</option>
-                    <option value="monstro">Monstro</option>
-                  </Select>
+                  {souDono ? (
+                    <Select label="Tipo" value={form.tipo} onChange={e => update('tipo', e.target.value as TPersonagem['tipo'])}>
+                      <option value="jogador">Jogador</option>
+                      <option value="npc">NPC</option>
+                      <option value="monstro">Monstro</option>
+                    </Select>
+                  ) : (
+                    <Input label="Tipo" value="Jogador" disabled />
+                  )}
                 </div>
               </div>
             </Panel>
@@ -522,28 +543,34 @@ export const PersonagemForm: React.FC = () => {
 
 // ── FichaPersonagem (visualização) ────────────────────────────────────
 export const FichaPersonagem: React.FC = () => {
-  const { id, personagemId: pid } = useParams<{ id: string; personagemId: string }>()
+  const { donoUid: dUid, id, personagemId: pid } = useParams<{ donoUid: string; id: string; personagemId: string }>()
+  const donoUid = dUid!
   const mesaId = id!
   const personagemId = pid!
+  const meuUid = auth.currentUser!.uid
+  const souDono = donoUid === meuUid
   const navigate = useNavigate()
   const [personagem, setPersonagem] = useState<TPersonagem | null>(null)
   const [mesaNome, setMesaNome] = useState('')
 
   useEffect(() => {
-    Promise.all([getMesa(mesaId), getPersonagem(mesaId, personagemId)]).then(([m, p]) => {
+    Promise.all([getMesa(donoUid, mesaId), getPersonagem(donoUid, mesaId, personagemId)]).then(([m, p]) => {
       if (m) setMesaNome(m.nome)
       if (p) setPersonagem(p)
     })
-  }, [mesaId, personagemId])
+  }, [donoUid, mesaId, personagemId])
 
   if (!personagem) return null
+  const podeEditar = souDono || personagem.jogadorUid === meuUid
   const inventario: string[] = (personagem as any).inventario || []
 
   return (
     <div style={{ minHeight: '100vh', paddingBottom: 40 }}>
       <Topbar
-        crumbs={[{ label: 'Início', to: '/' }, { label: mesaNome, to: `/mesa/${mesaId}` }, { label: personagem.nome }]}
-        right={<Button size="sm" onClick={() => navigate(`/mesa/${mesaId}/personagem/${personagemId}/editar`)}>✎ Editar ficha</Button>}
+        crumbs={[{ label: 'Início', to: '/' }, { label: mesaNome, to: `/mesa/${donoUid}/${mesaId}` }, { label: personagem.nome }]}
+        right={podeEditar
+          ? <Button size="sm" onClick={() => navigate(`/mesa/${donoUid}/${mesaId}/personagem/${personagemId}/editar`)}>✎ Editar ficha</Button>
+          : undefined}
       />
       <div style={{ maxWidth: 900, margin: '0 auto', padding: '26px 32px', display: 'grid', gridTemplateColumns: '260px 1fr', gap: 20 }}>
         <Panel style={{ alignSelf: 'start' }}>
@@ -574,7 +601,10 @@ export const FichaPersonagem: React.FC = () => {
             <PanelTitle>Ataques &amp; habilidades</PanelTitle>
             {personagem.ataques.length === 0 ? (
               <div style={{ color: 'var(--ink-faint)', fontSize: 13, textAlign: 'center', padding: '20px 0' }}>
-                Nenhum ataque cadastrado. <span style={{ color: 'var(--gold)', cursor: 'pointer' }} onClick={() => navigate(`/mesa/${mesaId}/personagem/${personagemId}/editar`)}>Editar ficha →</span>
+                Nenhum ataque cadastrado.
+                {podeEditar && (
+                  <> <span style={{ color: 'var(--gold)', cursor: 'pointer' }} onClick={() => navigate(`/mesa/${donoUid}/${mesaId}/personagem/${personagemId}/editar`)}>Editar ficha →</span></>
+                )}
               </div>
             ) : personagem.ataques.map(a => (
               <div key={a.id} style={{ background: 'var(--bg-card)', border: '1px solid var(--line)', borderRadius: 9, padding: '12px 14px', marginTop: 10 }}>

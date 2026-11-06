@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Topbar } from '../components/layout/Topbar'
 import { Button, Input, Textarea, Select, Panel, PanelTitle, Toast } from '../components/ui'
 import { createMesa } from '../db'
+import { auth } from '../firebase'
 import type { SystemType, MoldeMesa } from '../types'
 
 const defaultMolde = (): MoldeMesa => ({
@@ -33,10 +34,11 @@ export const NovaMesa: React.FC = () => {
         status: 'ativa',
         criadaEm: new Date().toISOString(),
         molde: defaultMolde(),
+        membros: [],
       })
 
       setToast(true)
-      setTimeout(() => navigate(`/mesa/${id}`), 1200)
+      setTimeout(() => navigate(`/mesa/${auth.currentUser!.uid}/${id}`), 1200)
     } finally {
       setSalvando(false)
     }

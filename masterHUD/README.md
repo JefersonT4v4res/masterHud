@@ -39,59 +39,77 @@ Acesse http://localhost:5173
 | `/register` | Cadastro | público |
 | `/` | Landing (deslogado) / Menu principal (logado) | condicional |
 | `/perfil` | Perfil do usuário | logado |
-| `/jogos` | Lista de mesas | logado |
+| `/jogos` | Lista de mesas (suas e as que você entrou como jogador) | logado |
 | `/mesa/nova` | Criar nova mesa | logado |
-| `/mesa/:id` | Gerenciador da mesa | logado |
-| `/mesa/:id/combate` | Tela de combate | logado |
-| `/mesa/:id/personagem/novo` | Criar personagem/NPC | logado |
-| `/mesa/:id/personagem/:pid` | Ver ficha | logado |
-| `/mesa/:id/personagem/:pid/editar` | Editar ficha | logado |
+| `/mesa/entrar` | Entrar numa mesa via código de convite | logado |
+| `/mesa/:donoUid/:id` | Gerenciador da mesa (visão completa pro dono, reduzida pro jogador) | logado |
+| `/mesa/:donoUid/:id/combate` | Tela de combate (só o mestre; jogador é redirecionado) | logado |
+| `/mesa/:donoUid/:id/personagem/novo` | Criar personagem/NPC | logado |
+| `/mesa/:donoUid/:id/personagem/:pid` | Ver ficha | logado |
+| `/mesa/:donoUid/:id/personagem/:pid/editar` | Editar ficha | logado |
+| `/compendio` | Compêndio do Mestre (notas pessoais) | logado |
 
 ## Arquitetura de dados
 
-Tudo vive no Firestore, aninhado embaixo da conta do usuário:
+Tudo vive no Firestore, aninhado embaixo da conta do dono da mesa:
 
 ```
 usuarios/{uid}                                            perfil (nome, email, criadoEm)
-usuarios/{uid}/mesas/{mesaId}                              Mesa (com `molde` embutido)
-usuarios/{uid}/mesas/{mesaId}/personagens/{personagemId}   Personagem (jogador/npc/monstro)
+usuarios/{uid}/mesasParticipando/{mesaId}                 índice pessoal: mesas de outros donos que você entrou (donoUid, personagemId)
+usuarios/{uid}/mesas/{mesaId}                              Mesa (com `molde` embutido, `membros[]`, `conviteCodigo`)
+usuarios/{uid}/mesas/{mesaId}/personagens/{personagemId}   Personagem (jogador/npc/monstro, jogador tem `jogadorUid`)
+usuarios/{uid}/mesas/{mesaId}/resumo/jogadores             Projeção só com HP/nome/foto dos personagens tipo jogador (nunca NPC) — o que um jogador comum pode ler do resto do grupo
+convites/{codigo}                                          { donoUid, mesaId, mesaNome, sistema } — só leitura direta por código (nunca listagem, pra não dar pra enumerar convite de mesa de ninguém)
 ```
 
-`src/db/index.ts` lê o usuário logado internamente (`auth.currentUser`) — nenhuma página precisa passar `uid` manualmente. Ainda é **só individual**: cada conta só enxerga suas próprias mesas, sem compartilhar com outras contas (ver "Próxima prioridade").
+`src/db/index.ts` lê o usuário logado internamente (`auth.currentUser`) pra tudo que é "minha conta", mas toda função que lê/escreve uma mesa recebe `donoUid` explicitamente — uma conta pode não ser dona da mesa que está acessando. As regras do Firestore (`masterHUD/firestore.rules`) são o que de fato impede um jogador de ler ficha de NPC ou de outro jogador; a UI só reflete o que as regras permitem.
 
 `Combate`/`CombatParticipant` continuam existindo só como tipos TypeScript — a ordem de turno hoje é passada entre telas via `location.state` do router, nunca persistida (ver "O que falta").
 
-A tela `/stream` (overlay pra compartilhar com jogadores sem acesso à ferramenta) foi removida nessa migração — ficava obsoleta assim que cada jogador tem conta própria (ver "Próxima prioridade").
+A tela `/stream` (overlay pra compartilhar com jogadores sem acesso à ferramenta) foi removida nessa migração — ficava obsoleta assim que cada jogador tem conta própria e consegue entrar na mesa pelo convite.
 
 ## O que já temos
 
 - Landing page pública em `/` (para quem não está logado) com botões Entrar/Cadastrar
 - Login / Cadastro (Firebase Auth) com rotas protegidas e recuperação de senha
-- Perfil do usuário — ver e editar nome, logout
+- Perfil do usuário — nome, foto (redimensionada no cliente, guardada só no Firestore), frase, logout com confirmação
 - Política de senha forte no cadastro (12+ caracteres, maiúscula, minúscula, número, caractere especial, sem sequências óbvias como `123456`/`qwerty`), com checklist visual em tempo real (`src/utils/senha.ts`)
 - Verificação de email obrigatória — conta nova fica bloqueada em todas as rotas protegidas até confirmar o link enviado por email (`src/components/VerifyEmailGate.tsx`)
 - Modal de rolagem de dados (pública/privada)
 - Gerenciador de mesa, combate com iniciativa/turnos, fichas de personagem/NPC/monstro
 - Toggle "Modo mestre/audiência" no Combate — esconde HP/descrições de NPC quando o mestre compartilha a própria tela
+- Rodapé de atalhos flutuante no Combate (canto inferior central) com acesso rápido a Fichas (modal com HP dos jogadores + link de edição em nova aba) e Dados completo (rolador avançado) — o terceiro atalho, Chat, está no lugar mas sem lógica (ver "O que falta")
 - **Mesas e personagens persistem por conta no Firestore** — acesse de qualquer computador fazendo login
+- Compêndio do Mestre (`/compendio`) — notas pessoais, abre em nova aba a partir da Home
 - Estado vazio (conta nova, zero mesas)
+- **Compartilhamento de mesa via código de convite** — mestre gera um código em `Gerenciador → Compartilhar mesa`; jogador entra em `/mesa/entrar`, reivindica um personagem jogador já criado (ainda sem dono) ou cria o seu; mestre pode remover um jogador da mesa depois
+- **Fichas privadas** — jogador vê a própria ficha completa e um resumo (nome/HP/foto) dos outros jogadores, mas nunca a ficha de NPCs/monstros nem a ficha completa de outro jogador; isso é garantido pelas regras do Firestore, não só por esconder na UI
+- Visão reduzida do Gerenciador pra quem entra como jogador (sem Zona de risco, NPCs ou gerenciador de combate); `Combate` continua exclusivo do mestre
 
 ## Segurança
 
 - **Senha**: a regra de complexidade (12+ caracteres, maiúscula/minúscula/número/especial) é validada no cliente antes de chamar o Firebase. Recomendado reforçar também no servidor em Firebase Console → Authentication → Settings → Password policy, marcando "Enforce" e os mesmos requisitos (exceto a checagem de sequências como `123456`/`qwerty`, que o Firebase não suporta nativamente — fica só no cliente).
 - **Verificação de email**: todo cadastro novo recebe automaticamente um email de verificação (`sendEmailVerification`) e fica bloqueado por `ProtectedRoute`/`VerifyEmailGate` até confirmar. **Contas criadas antes dessa mudança não têm o email verificado** e vão ver essa tela na próxima vez que acessarem — inclusive contas de teste já existentes.
-- **Sessão inválida**: toda função de `src/db/index.ts` é envolvida por um `guarded()` — se o Firestore recusar uma chamada por `permission-denied`/`unauthenticated` (token expirado, revogado, ou conta deslogada em outro lugar), a sessão é encerrada automaticamente e a tela de login mostra "Sua sessão expirou". Entre abas do mesmo navegador, isso já acontece de graça via `onAuthStateChanged` do Firebase — sem precisar de nada extra.
+- **Sessão inválida**: toda função de `src/db/index.ts` é envolvida por um `guarded()` — se o Firestore recusar uma chamada por `permission-denied`/`unauthenticated` (token expirado, revogado, ou conta deslogada em outro lugar), a sessão é encerrada automaticamente e a tela de login mostra "Sua sessão expirou". Entre abas do mesmo navegador, isso já acontece de graça via `onAuthStateChanged` do Firebase — sem precisar de nada extra. **Nota**: isso também dispara se o Firestore negar um acesso legítimo (ex: jogador tentando abrir a URL de uma ficha de NPC) — a segurança está correta, mas a experiência nesse caso específico é um logout abrupto em vez de uma mensagem de "sem acesso".
+- **Regras do Firestore** (`masterHUD/firestore.rules`, versionado no repo e colado manualmente no Firebase Console) — cobrem mesas, personagens, o resumo do grupo e os convites. Um ponto que vale registrar pra quem for alterar essas regras: `convites/{codigo}` libera `get` (buscar um código específico) mas bloqueia `list` por completo — sem isso, qualquer conta logada poderia listar o convite de toda mesa de todo mestre. Além disso, qualquer `getDocs`/query sem filtro numa coleção que mistura documentos com permissões diferentes (como `personagens`, que tem NPC e jogador juntos) é **negada por completo** pelo Firestore se puder teoricamente retornar algo que o usuário não pode ler — por isso consultas feitas por quem não é dono da mesa usam `where` explícito (ex: `getSlotsLivres`) em vez do `getPersonagens` genérico.
 
 ## O que falta
 
-- **Entrar numa mesa via código de convite** — hoje cada mesa só é visível pra conta que a criou; falta o modelo de compartilhamento entre contas
-- **Jogador acompanhar HP (seu e dos outros) dentro do app** — depende do item acima (precisa primeiro existir acesso de jogador a uma mesa que não é a dele)
-- **Fichas privadas** — o mestre vê a ficha de todos os jogadores da mesa; cada jogador só a própria (evita metagame). Só faz sentido quando existir mais de uma conta acessando a mesma mesa
-- Chat mestre ↔ jogadores — botão existe na tela de combate, sem lógica implementada
+- Chat mestre ↔ jogadores — é o terceiro atalho do rodapé flutuante no Combate (💬), já no lugar, mas sem lógica implementada
+- Revogar/regenerar código de convite, e jogador conseguir "sair da mesa" sozinho — hoje só o mestre consegue remover um jogador manualmente
+- Combate ao vivo com o jogador acompanhando em tempo real — depende de trocar leitura "busca uma vez" por `onSnapshot`; hoje o jogador só vê o resumo do grupo atualizado quando o mestre recarrega o Gerenciador
 - Tela de molde da mesa — hoje só é definido um padrão na criação da mesa, sem UI para editar depois
 - Marcar status do personagem (vivo/morto/inconsciente) manualmente — o campo existe no modelo (`Personagem.status`) mas não há UI para alterá-lo
 - O toggle "Modo mestre/audiência" do Combate hoje só esconde HP de NPC — poderia esconder também descrição de ataques, e/ou ganhar um equivalente no Gerenciador
 
+## Considerações e ideias
+- Logout timer ("Tem alguém aí?") — baixa prioridade; numa sessão de RPG o mestre passa longos trechos sem clicar em nada (todo mundo interpretando), então um timeout curto atrapalharia o próprio uso real da ferramenta. Se for feito, precisa de um tempo bem generoso (1h+).
+- Loja de itens que o mestre pode criar e disponibilizar para os jogadores comprarem - O jogador vai na sessão "loja" e lá ele pode comprar o item com o dinheiro que ele tem na ficha do personagem. Aqui temos duas visões o do Mestre e o do jogador. O mestre é capaz de adicionar, editar e remover itens, o jogador só consegue comprar ou modificar a quantidade que quer comprar daquele item - mestre também decide quantas versões daquele item ficam disponíveis para evitar que itens raros seram comprados aos montes
+* OBS.: Adicionar um campo "Dinheiro" na ficha de cada personagem — provável candidato a reaproveitar o mesmo padrão flexível do `molde` (atributos customizáveis por mesa), já que o tipo de moeda varia por sistema (ouro/prata/bronze, etc.)
+* Possibilidade de jogar uma informação direto na tela do jogador? Pensar sobre. Depende de trocar leitura "puxar uma vez" por listener em tempo real (`onSnapshot`) — a mesma mudança técnica do item "Combate ao vivo" em "O que falta".
+- Enciclopédia de Raças, Classes, Origens, Divindades, Magias e Poderes — conteúdo próprio (não importar material oficial de sistemas como D&D sem checar licença/SRD antes)
+- Bestiário + "salvar NPCs/criaturas pra reaproveitar entre campanhas" — são a mesma feature na prática: `Personagem` já tem `tipo: 'monstro'`, então isso vira uma biblioteca pessoal de personagens não presos a uma mesa específica, e "importar" é só copiar o registro pra dentro de uma mesa
+
 ## Próxima prioridade
 
-Compartilhamento entre contas: convite por código pra um jogador entrar numa mesa do mestre. Hoje o modelo é `usuarios/{uid}/mesas/{mesaId}` (só o dono vê) — compartilhar exige repensar essa estrutura (provavelmente uma coleção de mesas separada da árvore do dono, com lista de membros) e as regras de segurança do Firestore que vêm junto.
+Nenhuma definida ainda. A rodada atual é uma passada de testes manuais gerais (UI/UX, navegabilidade, segurança entre contas, entrada de dados maliciosa) — checklist em [`CHECKLIST_TESTES.md`](./CHECKLIST_TESTES.md).

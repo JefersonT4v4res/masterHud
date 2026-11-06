@@ -16,7 +16,7 @@ const statusLabel: Record<Mesa['status'], string> = {
 
 export const Home: React.FC = () => {
   const navigate = useNavigate()
-  const { user } = useAuth()
+  const { user, perfil } = useAuth()
   const nomeUsuario = user?.displayName || user?.email || 'Usuário'
   const [mesas, setMesas] = useState<Mesa[]>([])
 
@@ -43,14 +43,15 @@ export const Home: React.FC = () => {
           <div style={{ fontSize: 11, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'var(--ink-faint)', marginBottom: 14 }}>
             Ações rápidas
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 14, marginBottom: 32 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 32 }}>
             {[
               { icon: '⬡', title: 'Criar personagem', desc: 'Ficha customizada ou baseada em sistema', to: '/personagem/novo' },
               { icon: '✦', title: 'Criar nova mesa', desc: 'Configure jogadores, sistema e cenário', to: '/mesa/nova' },
               { icon: '⌘', title: 'Suas mesas', desc: 'Ver e gerenciar todas as campanhas', to: '/jogos' },
+              { icon: '📖', title: 'Compêndio do Mestre', desc: 'Suas anotações pessoais, numa aba separada', to: '/compendio', novaAba: true },
             ].map(item => (
               <div key={item.title}
-                onClick={() => navigate(item.to)}
+                onClick={() => item.novaAba ? window.open(item.to, '_blank') : navigate(item.to)}
                 style={{
                   background: 'var(--bg-card)', border: '1px solid var(--line)',
                   borderRadius: 11, padding: 18, cursor: 'pointer', transition: 'all 0.15s',
@@ -74,7 +75,7 @@ export const Home: React.FC = () => {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {mesas.slice(0, 3).map(mesa => (
                   <div key={mesa.id}
-                    onClick={() => navigate(`/mesa/${mesa.id}`)}
+                    onClick={() => navigate(`/mesa/${user!.uid}/${mesa.id}`)}
                     style={{
                       display: 'flex', alignItems: 'center', gap: 14,
                       background: 'var(--bg-card)', border: '1px solid var(--line)',
@@ -119,7 +120,7 @@ export const Home: React.FC = () => {
         <Panel style={{ textAlign: 'center', alignSelf: 'start' }}>
           <div onClick={() => navigate('/perfil')} style={{ cursor: 'pointer' }}>
             <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 14 }}>
-              <Avatar nome={nomeUsuario} size={80} border="2px solid var(--gold)" />
+              <Avatar nome={nomeUsuario} src={perfil?.fotoUrl} size={80} border="2px solid var(--gold)" />
             </div>
             <div style={{ fontFamily: 'var(--font-display)', fontSize: 19, fontWeight: 600, marginBottom: 6 }}>{nomeUsuario}</div>
           </div>

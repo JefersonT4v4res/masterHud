@@ -2,8 +2,11 @@ import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Topbar } from '../components/layout/Topbar'
 import { Button, Badge, Panel } from '../components/ui'
-import { getMesas } from '../db'
+import { getMesa, getMesas, getMesasParticipando } from '../db'
+import { auth } from '../firebase'
 import type { Mesa } from '../types'
+
+interface MesaListada extends Mesa { donoUid: string; souDono: boolean }
 
 type Filtro = 'todas' | 'ativas' | 'pausadas' | 'encerradas'
 
@@ -19,11 +22,25 @@ const sistemaLabel: Record<string, string> = {
 
 export const Jogos: React.FC = () => {
   const navigate = useNavigate()
-  const [mesas, setMesas] = useState<Mesa[]>([])
+  const [mesas, setMesas] = useState<MesaListada[]>([])
   const [filtro, setFiltro] = useState<Filtro>('todas')
   const [busca, setBusca] = useState('')
 
-  useEffect(() => { getMesas().then(setMesas) }, [])
+  useEffect(() => {
+    const meuUid = auth.currentUser!.uid
+    const load = async () => {
+      const [proprias, participando] = await Promise.all([getMesas(), getMesasParticipando()])
+      const propriasListadas: MesaListada[] = proprias.map(m => ({ ...m, donoUid: meuUid, souDono: true }))
+      const participandoListadas = (await Promise.all(
+        participando.map(async p => {
+          const m = await getMesa(p.donoUid, p.mesaId)
+          return m ? { ...m, donoUid: p.donoUid, souDono: false } as MesaListada : null
+        })
+      )).filter((m): m is MesaListada => m !== null)
+      setMesas([...propriasListadas, ...participandoListadas])
+    }
+    load()
+  }, [])
 
   const filtroStatusMap: Record<Filtro, Mesa['status'] | null> = {
     todas: null,
@@ -99,6 +116,7 @@ export const Jogos: React.FC = () => {
                       {sistemaLabel[mesa.sistema] || mesa.sistema}
                     </Badge>
                     {mesa.status !== 'ativa' && <Badge color={statusColor[mesa.status]}>{statusLabel[mesa.status]}</Badge>}
+                    {!mesa.souDono && <Badge color="neutral">Jogador</Badge>}
                   </div>
                   <div style={{ fontSize: 13, color: 'var(--ink-dim)', marginBottom: 10 }}>
                     {mesa.descricao || 'Sem descrição'}
@@ -111,16 +129,18 @@ export const Jogos: React.FC = () => {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {mesa.status === 'ativa' ? (
                     <>
-                      <Button size="sm" onClick={() => navigate(`/mesa/${mesa.id}/combate`)}>Iniciar jogo</Button>
-                      <Button size="sm" variant="ghost" onClick={() => navigate(`/mesa/${mesa.id}`)}>Gerenciar mesa</Button>
+                      {mesa.souDono && <Button size="sm" onClick={() => navigate(`/mesa/${mesa.donoUid}/${mesa.id}/combate`)}>Iniciar jogo</Button>}
+                      <Button size="sm" variant="ghost" onClick={() => navigate(`/mesa/${mesa.donoUid}/${mesa.id}`)}>
+                        {mesa.souDono ? 'Gerenciar mesa' : 'Ver mesa'}
+                      </Button>
                     </>
                   ) : mesa.status === 'pausada' ? (
                     <>
-                      <Button size="sm" variant="secondary">Reativar mesa</Button>
-                      <Button size="sm" variant="ghost" onClick={() => navigate(`/mesa/${mesa.id}`)}>Gerenciar mesa</Button>
+                      {mesa.souDono && <Button size="sm" variant="secondary">Reativar mesa</Button>}
+                      <Button size="sm" variant="ghost" onClick={() => navigate(`/mesa/${mesa.donoUid}/${mesa.id}`)}>Gerenciar mesa</Button>
                     </>
                   ) : (
-                    <Button size="sm" variant="ghost" onClick={() => navigate(`/mesa/${mesa.id}`)}>Ver mesa</Button>
+                    <Button size="sm" variant="ghost" onClick={() => navigate(`/mesa/${mesa.donoUid}/${mesa.id}`)}>Ver mesa</Button>
                   )}
                 </div>
               </div>
@@ -153,7 +173,7 @@ export const Jogos: React.FC = () => {
           <div style={{ height: 1, background: 'var(--line)', marginBottom: 18 }} />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <Button style={{ width: '100%' }} onClick={() => navigate('/mesa/nova')}>+ Criar nova mesa</Button>
-            <Button variant="secondary" style={{ width: '100%' }}>Entrar numa mesa</Button>
+            <Button variant="secondary" style={{ width: '100%' }} onClick={() => navigate('/mesa/entrar')}>Entrar numa mesa</Button>
           </div>
         </Panel>
       </div>

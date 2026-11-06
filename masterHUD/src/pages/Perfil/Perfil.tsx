@@ -1,21 +1,68 @@
-import React, { useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { updateProfile } from 'firebase/auth'
 import { doc, updateDoc } from 'firebase/firestore'
 import { Topbar } from '../../components/layout/Topbar'
-import { Button, Input, Panel, PanelTitle, Avatar, Toast } from '../../components/ui'
+import { Button, Input, Textarea, Panel, PanelTitle, Avatar, Toast, Modal } from '../../components/ui'
 import { useAuth } from '../../context/AuthContext'
 import { auth, db } from '../../firebase'
 
+// Redimensiona pra um quadrado pequeno antes de salvar — mantém o documento do
+// Firestore leve. A foto fica só no Firestore: o `photoURL` do Firebase Auth tem
+// um limite rígido de ~2048 caracteres (é pensado pra URL, não pra base64 embutido).
+function resizeImageToBase64(file: File, size = 160, quality = 0.8): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = reject
+    reader.onload = () => {
+      const img = new Image()
+      img.onerror = reject
+      img.onload = () => {
+        const canvas = document.createElement('canvas')
+        canvas.width = size
+        canvas.height = size
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return reject(new Error('Canvas indisponível'))
+        const lado = Math.min(img.width, img.height)
+        const sx = (img.width - lado) / 2
+        const sy = (img.height - lado) / 2
+        ctx.drawImage(img, sx, sy, lado, lado, 0, 0, size, size)
+        resolve(canvas.toDataURL('image/jpeg', quality))
+      }
+      img.src = reader.result as string
+    }
+    reader.readAsDataURL(file)
+  })
+}
+
 export const Perfil: React.FC = () => {
-  const { user, logout, refreshUser } = useAuth()
+  const { user, perfil, logout, refreshUser, refreshPerfil } = useAuth()
   const navigate = useNavigate()
+  const fotoInputRef = useRef<HTMLInputElement>(null)
 
   const nomeAtual = user?.displayName || user?.email || 'Usuário'
   const [nome, setNome] = useState(user?.displayName || '')
+  const [frase, setFrase] = useState(perfil?.frase || '')
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [toast, setToast] = useState(false)
+  const [confirmSair, setConfirmSair] = useState(false)
+
+  useEffect(() => {
+    if (perfil?.frase) setFrase(perfil.frase)
+  }, [perfil])
+
+  const handleFotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !auth.currentUser) return
+    try {
+      const base64 = await resizeImageToBase64(file)
+      await updateDoc(doc(db, 'usuarios', auth.currentUser.uid), { fotoUrl: base64 })
+      await refreshPerfil()
+    } catch {
+      setErro('Não foi possível atualizar a foto. Tente uma imagem menor.')
+    }
+  }
 
   const handleSalvar = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -24,8 +71,9 @@ export const Perfil: React.FC = () => {
     setSalvando(true)
     try {
       await updateProfile(auth.currentUser, { displayName: nome.trim() })
-      await updateDoc(doc(db, 'usuarios', auth.currentUser.uid), { nome: nome.trim() })
+      await updateDoc(doc(db, 'usuarios', auth.currentUser.uid), { nome: nome.trim(), frase: frase.trim() })
       refreshUser()
+      await refreshPerfil()
       setToast(true)
       setTimeout(() => setToast(false), 2000)
     } catch {
@@ -46,7 +94,23 @@ export const Perfil: React.FC = () => {
 
       <div style={{ maxWidth: 560, margin: '0 auto', padding: '32px' }}>
         <Panel style={{ textAlign: 'center', marginBottom: 20 }}>
-          <Avatar nome={nomeAtual} size={84} />
+          <div
+            onClick={() => fotoInputRef.current?.click()}
+            title="Trocar foto"
+            style={{ display: 'inline-block', cursor: 'pointer', position: 'relative' }}
+          >
+            <Avatar nome={nomeAtual} src={perfil?.fotoUrl} size={84} />
+            <div style={{
+              position: 'absolute', inset: 0, borderRadius: '50%',
+              background: 'rgba(0,0,0,0.5)', color: 'var(--ink)', fontSize: 11,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              opacity: 0, transition: 'opacity 0.15s',
+            }}
+              onMouseEnter={ev => (ev.currentTarget.style.opacity = '1')}
+              onMouseLeave={ev => (ev.currentTarget.style.opacity = '0')}
+            >Trocar</div>
+          </div>
+          <input ref={fotoInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFotoChange} />
           <div style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 600, margin: '14px 0 2px' }}>
             {nomeAtual}
           </div>
@@ -62,10 +126,18 @@ export const Perfil: React.FC = () => {
               onChange={(e) => setNome(e.target.value)}
               required
             />
+            <Textarea
+              label="Frase"
+              value={frase}
+              onChange={(e) => setFrase(e.target.value)}
+              placeholder="Uma frase curta pra deixar seu perfil com a sua cara..."
+              style={{ minHeight: 60 }}
+              maxLength={140}
+            />
             <Input label="Email" value={user?.email || ''} disabled />
             {erro && <div style={{ color: '#e07a7a', fontSize: 13 }}>{erro}</div>}
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginTop: 6 }}>
-              <Button variant="danger-outline" type="button" onClick={handleLogout}>
+              <Button variant="danger-outline" type="button" onClick={() => setConfirmSair(true)}>
                 Sair
               </Button>
               <Button type="submit" disabled={salvando}>
@@ -75,6 +147,16 @@ export const Perfil: React.FC = () => {
           </form>
         </Panel>
       </div>
+
+      <Modal open={confirmSair} onClose={() => setConfirmSair(false)} title="Sair da conta?" width={400}>
+        <div style={{ fontSize: 13.5, color: 'var(--ink-dim)', marginBottom: 20 }}>
+          Você será desconectado e voltará pra tela de login.
+        </div>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <Button variant="ghost" onClick={() => setConfirmSair(false)}>Cancelar</Button>
+          <Button variant="danger" onClick={handleLogout}>Sair</Button>
+        </div>
+      </Modal>
 
       <Toast message="Perfil atualizado" visible={toast} />
     </div>

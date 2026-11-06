@@ -1,17 +1,31 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Topbar } from '../components/layout/Topbar'
-import { Button, Badge, Panel, PanelTitle, Avatar, Modal, Toast } from '../components/ui'
+import { Button, Badge, Panel, PanelTitle, Avatar, HpBar, Modal, Toast } from '../components/ui'
 import { DiceRollerModal } from '../components/DiceRollerModal'
-import { getMesa, getPersonagens, updateMesa, deletePersonagem, deleteMesa } from '../db'
+import {
+  getMesa, getMesasParticipando, getPersonagem, getPersonagens, getResumoJogadores,
+  getOrCreateConvite, removerMembro, refreshResumoJogadores, updateMesa, deletePersonagem, deleteMesa,
+} from '../db'
 import { rollDice } from '../hooks/useDiceRoller'
-import type { Mesa, Personagem } from '../types'
+import { auth } from '../firebase'
+import type { Mesa, Personagem, ResumoJogador } from '../types'
 
 interface FilaItem { personagemId: string; iniciativa: number | null }
 
 export const Gerenciador: React.FC = () => {
-  const { id } = useParams<{ id: string }>()
+  const { donoUid: dUid, id } = useParams<{ donoUid: string; id: string }>()
+  const donoUid = dUid!
   const mesaId = id!
+  const souDono = donoUid === auth.currentUser!.uid
+
+  return souDono
+    ? <GerenciadorDono donoUid={donoUid} mesaId={mesaId} />
+    : <GerenciadorJogador donoUid={donoUid} mesaId={mesaId} />
+}
+
+// ── Visão do mestre (igual a sempre + compartilhamento) ────────────────
+const GerenciadorDono: React.FC<{ donoUid: string; mesaId: string }> = ({ donoUid, mesaId }) => {
   const navigate = useNavigate()
 
   const [mesa, setMesa]               = useState<Mesa | null>(null)
@@ -22,19 +36,25 @@ export const Gerenciador: React.FC = () => {
   const [removeTarget, setRemoveTarget] = useState<Personagem | null>(null)
   const [toast, setToast]             = useState<string | null>(null)
   const [diceModal, setDiceModal]     = useState(false)
+  const [codigo, setCodigo]           = useState<string | null>(null)
+  const [gerandoCodigo, setGerandoCodigo] = useState(false)
 
   const load = useCallback(async () => {
-    const [m, ps] = await Promise.all([getMesa(mesaId), getPersonagens(mesaId)])
-    if (m) setMesa(m)
+    const [m, ps] = await Promise.all([getMesa(donoUid, mesaId), getPersonagens(donoUid, mesaId)])
+    if (m) { setMesa(m); setCodigo(m.conviteCodigo || null) }
     setPersonagens(ps)
-  }, [mesaId])
+    try {
+      await refreshResumoJogadores(donoUid, mesaId)
+    } catch (err) {
+      console.error('Falha ao recalcular o resumo do grupo:', err)
+    }
+  }, [donoUid, mesaId])
 
   useEffect(() => { load() }, [load])
 
   const jogadores = personagens.filter(p => p.tipo === 'jogador')
   const npcs      = personagens.filter(p => p.tipo !== 'jogador')
 
-  // Adiciona/remove da fila de combate
   const toggleFila = (pid: string) => {
     setCombateFila(prev =>
       prev.find(f => f.personagemId === pid)
@@ -43,14 +63,10 @@ export const Gerenciador: React.FC = () => {
     )
   }
 
-  // Rola iniciativa 1d20 para um personagem na fila e reordena
   const rolarIniciativa = (pid: string) => {
     const [rolled] = rollDice(1, 20)
     setCombateFila(prev => {
-      const updated = prev.map(f =>
-        f.personagemId === pid ? { ...f, iniciativa: rolled } : f
-      )
-      // Ordena: quem tem iniciativa fica no topo (maior primeiro), quem não tem fica no final
+      const updated = prev.map(f => f.personagemId === pid ? { ...f, iniciativa: rolled } : f)
       return [...updated].sort((a, b) => {
         if (a.iniciativa === null) return 1
         if (b.iniciativa === null) return -1
@@ -60,7 +76,6 @@ export const Gerenciador: React.FC = () => {
     showToast(`${personagens.find(p => p.id === pid)?.nome}: iniciativa ${rolled}`)
   }
 
-  // Rola iniciativa para todos de uma vez
   const rolarTodos = () => {
     setCombateFila(prev => {
       const updated = prev.map(f => ({ ...f, iniciativa: rollDice(1, 20)[0] }))
@@ -76,10 +91,36 @@ export const Gerenciador: React.FC = () => {
 
   const handleRemovePersonagem = async () => {
     if (!removeTarget?.id) return
-    await deletePersonagem(mesaId, removeTarget.id)
+    await deletePersonagem(donoUid, mesaId, removeTarget.id)
     setRemoveTarget(null)
     load()
     showToast('Personagem removido.')
+  }
+
+  const handleRemoverMembro = async (uidJogador: string) => {
+    await removerMembro(donoUid, mesaId, uidJogador)
+    setMesa(prev => prev ? { ...prev, membros: prev.membros.filter(u => u !== uidJogador) } : prev)
+    showToast('Jogador removido da mesa.')
+  }
+
+  const handleGerarCodigo = async () => {
+    setGerandoCodigo(true)
+    try {
+      const c = await getOrCreateConvite(mesaId)
+      setCodigo(c)
+    } finally {
+      setGerandoCodigo(false)
+    }
+  }
+
+  const copiarCodigo = async () => {
+    if (!codigo) return
+    try {
+      await navigator.clipboard.writeText(codigo)
+      showToast('Código copiado!')
+    } catch {
+      showToast(`Código: ${codigo}`)
+    }
   }
 
   const showToast = (msg: string) => {
@@ -90,7 +131,7 @@ export const Gerenciador: React.FC = () => {
   const togglePause = async () => {
     if (!mesa) return
     const next: Mesa['status'] = mesa.status === 'ativa' ? 'pausada' : 'ativa'
-    await updateMesa(mesaId, { status: next })
+    await updateMesa(donoUid, mesaId, { status: next })
     setMesa({ ...mesa, status: next })
     showToast(next === 'pausada' ? 'Mesa pausada.' : 'Mesa reativada!')
   }
@@ -112,7 +153,7 @@ export const Gerenciador: React.FC = () => {
         crumbs={[
           { label: 'Início', to: '/' },
           { label: 'Jogos', to: '/jogos' },
-          { label: mesa.nome, to: `/mesa/${mesaId}` },
+          { label: mesa.nome, to: `/mesa/${donoUid}/${mesaId}` },
           { label: 'Gerenciador' },
         ]}
         right={
@@ -121,7 +162,7 @@ export const Gerenciador: React.FC = () => {
             <Button size="sm" variant="secondary" onClick={() => setDiceModal(true)}>⬡ Rolar dados</Button>
             <Button
               size="sm"
-              onClick={() => navigate(`/mesa/${mesaId}/combate`, { state: { fila: combateFila } })}
+              onClick={() => navigate(`/mesa/${donoUid}/${mesaId}/combate`, { state: { fila: combateFila } })}
               disabled={combateFila.length === 0}
             >
               Iniciar combate {combateFila.length > 0 && `(${combateFila.length})`}
@@ -132,6 +173,46 @@ export const Gerenciador: React.FC = () => {
 
       <div style={{ maxWidth: 1000, margin: '0 auto', padding: '26px 32px' }}>
 
+        {/* Compartilhar mesa */}
+        <Panel style={{ marginBottom: 20 }}>
+          <PanelTitle>Compartilhar mesa</PanelTitle>
+          <div style={{ fontSize: 12.5, color: 'var(--ink-faint)', margin: '4px 0 14px' }}>
+            Qualquer pessoa com esse código pode entrar na mesa e escolher ou criar um personagem jogador.
+          </div>
+          {codigo ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{
+                fontFamily: 'var(--font-display)', fontSize: 24, fontWeight: 700,
+                letterSpacing: 4, color: 'var(--gold)', background: 'var(--bg-card)',
+                border: '1px solid var(--line)', borderRadius: 9, padding: '10px 20px',
+              }}>{codigo}</div>
+              <Button variant="secondary" size="sm" onClick={copiarCodigo}>Copiar</Button>
+            </div>
+          ) : (
+            <Button onClick={handleGerarCodigo} disabled={gerandoCodigo}>
+              {gerandoCodigo ? 'Gerando…' : 'Gerar código de convite'}
+            </Button>
+          )}
+          {mesa.membros.length > 0 && (
+            <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--line)' }}>
+              <div style={{ fontSize: 11, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--ink-faint)', marginBottom: 10 }}>
+                Jogadores na mesa ({mesa.membros.length})
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {mesa.membros.map(membroUid => {
+                  const ficha = jogadores.find(p => p.jogadorUid === membroUid)
+                  return (
+                    <div key={membroUid} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
+                      <span style={{ flex: 1, color: 'var(--ink-dim)' }}>{ficha?.nome || 'Ainda sem ficha'}</span>
+                      <Button size="sm" variant="danger-outline" onClick={() => handleRemoverMembro(membroUid)}>Remover</Button>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </Panel>
+
         {/* Jogadores */}
         <Panel style={{ marginBottom: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
@@ -139,7 +220,7 @@ export const Gerenciador: React.FC = () => {
               <PanelTitle>Jogadores</PanelTitle>
               <span style={{ fontSize: 12, color: 'var(--ink-faint)' }}>{jogadores.length} de 10</span>
             </div>
-            <Button size="sm" onClick={() => navigate(`/mesa/${mesaId}/personagem/novo?tipo=jogador`)}>
+            <Button size="sm" onClick={() => navigate(`/mesa/${donoUid}/${mesaId}/personagem/novo?tipo=jogador`)}>
               + Adicionar jogador
             </Button>
           </div>
@@ -153,8 +234,8 @@ export const Gerenciador: React.FC = () => {
                   personagem={p}
                   inFila={!!combateFila.find(f => f.personagemId === p.id!)}
                   onToggleFila={() => toggleFila(p.id!)}
-                  onVer={() => navigate(`/mesa/${mesaId}/personagem/${p.id}`)}
-                  onEditar={() => navigate(`/mesa/${mesaId}/personagem/${p.id}/editar`)}
+                  onVer={() => navigate(`/mesa/${donoUid}/${mesaId}/personagem/${p.id}`)}
+                  onEditar={() => navigate(`/mesa/${donoUid}/${mesaId}/personagem/${p.id}/editar`)}
                   onRemover={() => setRemoveTarget(p)}
                 />
               ))}
@@ -169,7 +250,7 @@ export const Gerenciador: React.FC = () => {
               <PanelTitle>NPCs &amp; monstros</PanelTitle>
               <span style={{ fontSize: 12, color: 'var(--ink-faint)' }}>{npcs.length} nesta mesa</span>
             </div>
-            <Button size="sm" variant="secondary" onClick={() => navigate(`/mesa/${mesaId}/personagem/novo?tipo=npc`)}>
+            <Button size="sm" variant="secondary" onClick={() => navigate(`/mesa/${donoUid}/${mesaId}/personagem/novo?tipo=npc`)}>
               + Criar NPC
             </Button>
           </div>
@@ -183,8 +264,8 @@ export const Gerenciador: React.FC = () => {
                   personagem={p}
                   inFila={!!combateFila.find(f => f.personagemId === p.id!)}
                   onToggleFila={() => toggleFila(p.id!)}
-                  onVer={() => navigate(`/mesa/${mesaId}/personagem/${p.id}`)}
-                  onEditar={() => navigate(`/mesa/${mesaId}/personagem/${p.id}/editar`)}
+                  onVer={() => navigate(`/mesa/${donoUid}/${mesaId}/personagem/${p.id}`)}
+                  onEditar={() => navigate(`/mesa/${donoUid}/${mesaId}/personagem/${p.id}/editar`)}
                   onRemover={() => setRemoveTarget(p)}
                 />
               ))}
@@ -207,7 +288,6 @@ export const Gerenciador: React.FC = () => {
             <EmptyState label="Clique nos personagens acima para adicioná-los à fila de combate." />
           ) : (
             <>
-              {/* Lista ordenada por iniciativa */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
                 {combateFila.map((item, idx) => {
                   const p = personagens.find(x => x.id === item.personagemId)
@@ -218,7 +298,6 @@ export const Gerenciador: React.FC = () => {
                       background: 'var(--bg-card)', border: `1px solid ${item.iniciativa !== null ? 'var(--gold-dim)' : 'var(--line)'}`,
                       borderRadius: 10, padding: '10px 14px',
                     }}>
-                      {/* Posição */}
                       <div style={{
                         width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
                         background: item.iniciativa !== null ? 'var(--gold-dim)' : 'var(--bg-panel)',
@@ -237,7 +316,6 @@ export const Gerenciador: React.FC = () => {
                         <div style={{ fontSize: 11.5, color: 'var(--ink-faint)' }}>Nv. {p.nivel} · {p.classe}</div>
                       </div>
 
-                      {/* Valor da iniciativa ou botão de rolar */}
                       {item.iniciativa !== null ? (
                         <div style={{ textAlign: 'center', marginRight: 8 }}>
                           <div style={{ fontSize: 10, color: 'var(--ink-faint)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Iniciativa</div>
@@ -256,7 +334,6 @@ export const Gerenciador: React.FC = () => {
                         </Button>
                       )}
 
-                      {/* Remover da fila */}
                       <button
                         onClick={() => toggleFila(item.personagemId)}
                         style={{ color: 'var(--ink-faint)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, padding: '4px 6px' }}
@@ -272,7 +349,7 @@ export const Gerenciador: React.FC = () => {
                 <Button
                   size="sm"
                   disabled={!todosRolaram}
-                  onClick={() => navigate(`/mesa/${mesaId}/combate`, { state: { fila: combateFila } })}
+                  onClick={() => navigate(`/mesa/${donoUid}/${mesaId}/combate`, { state: { fila: combateFila } })}
                   title={!todosRolaram ? 'Role a iniciativa de todos antes de iniciar' : ''}
                 >
                   {todosRolaram ? 'Iniciar combate →' : 'Role a iniciativa para continuar'}
@@ -343,6 +420,81 @@ export const Gerenciador: React.FC = () => {
 
       {toast && <Toast message={toast} visible={!!toast} />}
       <DiceRollerModal open={diceModal} onClose={() => setDiceModal(false)} />
+    </div>
+  )
+}
+
+// ── Visão do jogador convidado (reduzida) ───────────────────────────────
+const GerenciadorJogador: React.FC<{ donoUid: string; mesaId: string }> = ({ donoUid, mesaId }) => {
+  const navigate = useNavigate()
+  const [mesa, setMesa] = useState<Mesa | null>(null)
+  const [minhaFicha, setMinhaFicha] = useState<Personagem | null>(null)
+  const [resumo, setResumo] = useState<ResumoJogador[]>([])
+
+  useEffect(() => {
+    const load = async () => {
+      const [m, participando, res] = await Promise.all([
+        getMesa(donoUid, mesaId), getMesasParticipando(), getResumoJogadores(donoUid, mesaId),
+      ])
+      if (m) setMesa(m)
+      setResumo(res)
+      const minha = participando.find(p => p.mesaId === mesaId)
+      if (minha?.personagemId) {
+        const ficha = await getPersonagem(donoUid, mesaId, minha.personagemId)
+        if (ficha) setMinhaFicha(ficha)
+      }
+    }
+    load()
+  }, [donoUid, mesaId])
+
+  if (!mesa) return null
+
+  return (
+    <div style={{ minHeight: '100vh', paddingBottom: 40 }}>
+      <Topbar
+        crumbs={[
+          { label: 'Início', to: '/' },
+          { label: 'Jogos', to: '/jogos' },
+          { label: mesa.nome },
+        ]}
+      />
+
+      <div style={{ maxWidth: 700, margin: '0 auto', padding: '26px 32px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+        <Panel>
+          <PanelTitle>Minha ficha</PanelTitle>
+          {minhaFicha ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 14 }}>
+              <Avatar nome={minhaFicha.nome} src={minhaFicha.imagemUrl} size={56} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 6 }}>{minhaFicha.nome}</div>
+                <HpBar atual={minhaFicha.hpAtual} maximo={minhaFicha.hpMaximo} />
+              </div>
+              <Button size="sm" onClick={() => navigate(`/mesa/${donoUid}/${mesaId}/personagem/${minhaFicha.id}`)}>Ver ficha</Button>
+            </div>
+          ) : (
+            <EmptyState label="Você ainda não tem um personagem nesta mesa." />
+          )}
+        </Panel>
+
+        <Panel>
+          <PanelTitle>Grupo</PanelTitle>
+          {resumo.length === 0 ? (
+            <EmptyState label="Nenhum jogador na mesa ainda." />
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 14 }}>
+              {resumo.map(p => (
+                <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <Avatar nome={p.nome} src={p.imagemUrl} size={36} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13.5, marginBottom: 2 }}>{p.nome}</div>
+                    <HpBar atual={p.hpAtual} maximo={p.hpMaximo} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Panel>
+      </div>
     </div>
   )
 }

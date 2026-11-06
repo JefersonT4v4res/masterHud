@@ -5,6 +5,7 @@ import { Button, Avatar, HpBar, Modal, Toast } from '../components/ui'
 import { DiceRollerModal } from '../components/DiceRollerModal'
 import { getMesa, getPersonagens, updatePersonagem } from '../db'
 import { parseDiceExpression, executeRoll, cryptoRollSingle, type RollResult } from '../hooks/useDiceRoller'
+import { auth } from '../firebase'
 import type { Personagem, Ataque } from '../types'
 import { calcAtributo } from '../types'
 
@@ -12,11 +13,17 @@ interface FilaItem { personagemId: string; iniciativa: number }
 interface Participante { personagem: Personagem; iniciativa: number }
 
 export const Combate: React.FC = () => {
-  const { id } = useParams<{ id: string }>()
+  const { donoUid: dUid, id } = useParams<{ donoUid: string; id: string }>()
+  const donoUid = dUid!
   const mesaId = id!
+  const souDono = donoUid === auth.currentUser!.uid
   const navigate = useNavigate()
   const location = useLocation()
   const filaPids: FilaItem[] = (location.state as { fila?: FilaItem[] })?.fila || []
+
+  // Combate é só do mestre nesta rodada — sem leitura/edição em tempo real pra
+  // múltiplos espectadores ainda.
+  useEffect(() => { if (!souDono) navigate(`/mesa/${donoUid}/${mesaId}`, { replace: true }) }, [souDono, donoUid, mesaId, navigate])
 
   const [mesaNome, setMesaNome]       = useState('')
   const [participantes, setParticipantes] = useState<Participante[]>([])
@@ -36,7 +43,7 @@ export const Combate: React.FC = () => {
   const trackRef                      = useRef<HTMLDivElement>(null)
 
   const load = useCallback(async () => {
-    const [m, todos] = await Promise.all([getMesa(mesaId), getPersonagens(mesaId)])
+    const [m, todos] = await Promise.all([getMesa(donoUid, mesaId), getPersonagens(donoUid, mesaId)])
     if (m) setMesaNome(m.nome)
 
     let ordenados: Participante[]
@@ -57,9 +64,13 @@ export const Combate: React.FC = () => {
     }
     setParticipantes(ordenados)
     if (ordenados.length > 0) setSelecionado(ordenados[0])
-  }, [mesaId]) // eslint-disable-line
+  }, [donoUid, mesaId]) // eslint-disable-line
 
-  useEffect(() => { load() }, [load])
+  // Não dispara a leitura pra quem não é dono: além de ser a regra de negócio
+  // (combate é só do mestre nesta rodada), a coleção de personagens tem NPCs que
+  // as regras do Firestore negam pra um membro comum — uma query sem filtro aqui
+  // seria rejeitada por completo antes mesmo do redirect acima surtir efeito.
+  useEffect(() => { if (souDono) load() }, [load, souDono])
 
   // Scroll automático para o card ativo na trilha
   useEffect(() => {
@@ -82,7 +93,7 @@ export const Combate: React.FC = () => {
     const novoHp = tipo === 'dano'
       ? Math.max(0, atual - delta)
       : Math.min(max, atual + delta)
-    await updatePersonagem(mesaId, selecionado.personagem.id!, {
+    await updatePersonagem(donoUid, mesaId, selecionado.personagem.id!, {
       hpAtual: novoHp,
       status: novoHp === 0 ? 'inconsciente' : 'vivo',
     })
@@ -128,12 +139,12 @@ export const Combate: React.FC = () => {
         if (!xp) return
         const p = participantes.find(pt => pt.personagem.id === pid)?.personagem
         if (!p) return
-        await updatePersonagem(mesaId, pid, { xp: p.xp + xp })
+        await updatePersonagem(donoUid, mesaId, pid, { xp: p.xp + xp })
       })
     )
     showToast('XP distribuído!')
     setXpModal(false)
-    navigate(`/mesa/${mesaId}`)
+    navigate(`/mesa/${donoUid}/${mesaId}`)
   }
 
   const showToast = (msg: string) => {
@@ -159,7 +170,7 @@ export const Combate: React.FC = () => {
       <Topbar
         crumbs={[
           { label: 'Início', to: '/' },
-          { label: mesaNome, to: `/mesa/${mesaId}` },
+          { label: mesaNome, to: `/mesa/${donoUid}/${mesaId}` },
           { label: 'Combate' },
         ]}
         right={
@@ -550,7 +561,7 @@ export const Combate: React.FC = () => {
                 <HpBar atual={p.personagem.hpAtual} maximo={p.personagem.hpMaximo} />
               </div>
               <Button size="sm" variant="ghost"
-                onClick={() => window.open(`/mesa/${mesaId}/personagem/${p.personagem.id}/editar`, '_blank')}
+                onClick={() => window.open(`/mesa/${donoUid}/${mesaId}/personagem/${p.personagem.id}/editar`, '_blank')}
               >
                 ✎ Editar ↗
               </Button>
@@ -594,7 +605,7 @@ export const Combate: React.FC = () => {
           </div>
         ))}
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 }}>
-          <Button variant="ghost" onClick={() => { setXpModal(false); navigate(`/mesa/${mesaId}`) }}>
+          <Button variant="ghost" onClick={() => { setXpModal(false); navigate(`/mesa/${donoUid}/${mesaId}`) }}>
             Encerrar sem XP
           </Button>
           <Button onClick={distribuirXp}>Confirmar e encerrar</Button>
