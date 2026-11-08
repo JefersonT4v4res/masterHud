@@ -30,6 +30,7 @@ Acesse http://localhost:5173
 - **Firestore** — perfil do usuário, mesas e personagens, com cache local automático (`persistentLocalCache`)
 - **React Router v6** — navegação entre telas, com rotas protegidas por sessão
 - Sem bibliotecas de UI — design próprio com CSS-in-JS inline
+- **Deploy (Vercel)** — `vercel.json` reescreve qualquer caminho pra `index.html`; sem isso, o React Router funciona navegando por dentro do app (clicando em links), mas recarregar a página (F5) ou abrir uma URL interna direto (ex: `/jogos`) dá 404 puro do Vercel, porque ele tenta servir um arquivo físico nesse caminho antes do React Router sequer carregar
 
 ## Rotas disponíveis
 
@@ -85,6 +86,8 @@ A tela `/stream` (overlay pra compartilhar com jogadores sem acesso à ferrament
 - **Compartilhamento de mesa via código de convite** — mestre gera um código em `Gerenciador → Compartilhar mesa`; jogador entra em `/mesa/entrar`, reivindica um personagem jogador já criado (ainda sem dono) ou cria o seu; mestre pode remover um jogador da mesa depois
 - **Fichas privadas** — jogador vê a própria ficha completa e um resumo (nome/HP/foto) dos outros jogadores, mas nunca a ficha de NPCs/monstros nem a ficha completa de outro jogador; isso é garantido pelas regras do Firestore, não só por esconder na UI
 - Visão reduzida do Gerenciador pra quem entra como jogador (sem Zona de risco, NPCs ou gerenciador de combate); `Combate` continua exclusivo do mestre
+- Editar nome/descrição da mesa depois de criada (`Gerenciador → Informações da mesa`) — o sistema (`dnd5e`/`tormenta20`/`custom`) não pode ser trocado depois, porque muda os atributos que as fichas já existentes esperam
+- Upload de imagem (perfil e fichas) sempre passa por `src/utils/imagem.ts`, que redimensiona pra um quadrado pequeno (160–200px) antes de virar base64 — documentos do Firestore têm limite de 1MB, e uma foto de câmera em tamanho original estoura isso fácil
 
 ## Segurança
 
@@ -109,6 +112,7 @@ A tela `/stream` (overlay pra compartilhar com jogadores sem acesso à ferrament
 * Possibilidade de jogar uma informação direto na tela do jogador? Pensar sobre. Depende de trocar leitura "puxar uma vez" por listener em tempo real (`onSnapshot`) — a mesma mudança técnica do item "Combate ao vivo" em "O que falta".
 - Enciclopédia de Raças, Classes, Origens, Divindades, Magias e Poderes — conteúdo próprio (não importar material oficial de sistemas como D&D sem checar licença/SRD antes)
 - Bestiário + "salvar NPCs/criaturas pra reaproveitar entre campanhas" — são a mesma feature na prática: `Personagem` já tem `tipo: 'monstro'`, então isso vira uma biblioteca pessoal de personagens não presos a uma mesa específica, e "importar" é só copiar o registro pra dentro de uma mesa
+- Campo "Nickname" separado de "Nome" no perfil — hoje só existe `nome` (o mesmo que aparece editável em `/perfil` e é usado como saudação); avaliar se faz sentido ter os dois ou se um só já resolve
 
 ## Próxima prioridade
 

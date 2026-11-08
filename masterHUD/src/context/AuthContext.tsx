@@ -52,11 +52,16 @@ const AUTH_ERROR_MESSAGES: Record<string, string> = {
   'auth/password-does-not-meet-requirements': 'A senha não atende aos requisitos mínimos de segurança do Firebase.',
 }
 
-function traduzErro(err: unknown): Error {
+function traduzErro(err: unknown): Error & { code?: string } {
   const code = (err as { code?: string })?.code
-  if (code && AUTH_ERROR_MESSAGES[code]) return new Error(AUTH_ERROR_MESSAGES[code])
-  if (err instanceof Error && err.message) return err
-  return new Error('Não foi possível completar a ação. Tente novamente.')
+  const mensagem = code && AUTH_ERROR_MESSAGES[code]
+    ? AUTH_ERROR_MESSAGES[code]
+    : err instanceof Error && err.message
+      ? err.message
+      : 'Não foi possível completar a ação. Tente novamente.'
+  const erro: Error & { code?: string } = new Error(mensagem)
+  if (code) erro.code = code
+  return erro
 }
 
 // Depois de clicar no link do email, o Firebase confirma a verificação na própria página

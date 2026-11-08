@@ -45,10 +45,10 @@ export const Home: React.FC = () => {
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 32 }}>
             {[
-              { icon: '⬡', title: 'Criar personagem', desc: 'Ficha customizada ou baseada em sistema', to: '/personagem/novo' },
+              { icon: '⚿', title: 'Entrar numa mesa', desc: 'Use um código de convite de outro mestre', to: '/mesa/entrar' },
               { icon: '✦', title: 'Criar nova mesa', desc: 'Configure jogadores, sistema e cenário', to: '/mesa/nova' },
               { icon: '⌘', title: 'Suas mesas', desc: 'Ver e gerenciar todas as campanhas', to: '/jogos' },
-              { icon: '📖', title: 'Compêndio do Mestre', desc: 'Suas anotações pessoais, numa aba separada', to: '/compendio', novaAba: true },
+              { icon: '▤', title: 'Compêndio do Mestre', desc: 'Suas anotações pessoais, numa aba separada', to: '/compendio', novaAba: true },
             ].map(item => (
               <div key={item.title}
                 onClick={() => item.novaAba ? window.open(item.to, '_blank') : navigate(item.to)}
@@ -123,6 +123,9 @@ export const Home: React.FC = () => {
               <Avatar nome={nomeUsuario} src={perfil?.fotoUrl} size={80} border="2px solid var(--gold)" />
             </div>
             <div style={{ fontFamily: 'var(--font-display)', fontSize: 19, fontWeight: 600, marginBottom: 6 }}>{nomeUsuario}</div>
+            {perfil?.frase && (
+              <div style={{ fontSize: 12, color: 'var(--ink-dim)', fontStyle: 'italic', marginBottom: 6 }}>"{perfil.frase}"</div>
+            )}
           </div>
           <div style={{ fontSize: 12, color: 'var(--ink-faint)', marginBottom: 20 }}>
             {mesas.length} mesa{mesas.length !== 1 ? 's' : ''} criada{mesas.length !== 1 ? 's' : ''}

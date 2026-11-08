@@ -21,7 +21,7 @@ const features = [
     desc: 'Atributos, ataques, perícias e inventário para jogadores, NPCs e monstros.',
   },
   {
-    icon: '🔑',
+    icon: '⚿',
     title: 'Mesas compartilhadas',
     desc: 'Convide jogadores por código — cada um com sua própria ficha, sem ver os segredos do mestre.',
   },

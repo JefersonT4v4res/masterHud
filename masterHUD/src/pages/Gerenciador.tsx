@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Topbar } from '../components/layout/Topbar'
-import { Button, Badge, Panel, PanelTitle, Avatar, HpBar, Modal, Toast } from '../components/ui'
+import { Button, Badge, Panel, PanelTitle, Avatar, HpBar, Modal, Toast, Input, Textarea } from '../components/ui'
 import { DiceRollerModal } from '../components/DiceRollerModal'
 import {
   getMesa, getMesasParticipando, getPersonagem, getPersonagens, getResumoJogadores,
@@ -9,7 +9,11 @@ import {
 } from '../db'
 import { rollDice } from '../hooks/useDiceRoller'
 import { auth } from '../firebase'
-import type { Mesa, Personagem, ResumoJogador } from '../types'
+import type { Mesa, Personagem, ResumoJogador, SystemType } from '../types'
+
+const sistemaLabel: Record<SystemType, string> = {
+  dnd5e: 'D&D 5ª Edição', tormenta20: 'Tormenta20', custom: 'Sistema customizado',
+}
 
 interface FilaItem { personagemId: string; iniciativa: number | null }
 
@@ -38,6 +42,10 @@ const GerenciadorDono: React.FC<{ donoUid: string; mesaId: string }> = ({ donoUi
   const [diceModal, setDiceModal]     = useState(false)
   const [codigo, setCodigo]           = useState<string | null>(null)
   const [gerandoCodigo, setGerandoCodigo] = useState(false)
+  const [editandoMesa, setEditandoMesa] = useState(false)
+  const [nomeEdit, setNomeEdit]       = useState('')
+  const [descEdit, setDescEdit]       = useState('')
+  const [salvandoMesa, setSalvandoMesa] = useState(false)
 
   const load = useCallback(async () => {
     const [m, ps] = await Promise.all([getMesa(donoUid, mesaId), getPersonagens(donoUid, mesaId)])
@@ -128,6 +136,26 @@ const GerenciadorDono: React.FC<{ donoUid: string; mesaId: string }> = ({ donoUi
     setTimeout(() => setToast(null), 2500)
   }
 
+  const handleEditarMesa = () => {
+    if (!mesa) return
+    setNomeEdit(mesa.nome)
+    setDescEdit(mesa.descricao)
+    setEditandoMesa(true)
+  }
+
+  const handleSalvarMesa = async () => {
+    if (!mesa || !nomeEdit.trim()) return
+    setSalvandoMesa(true)
+    try {
+      await updateMesa(donoUid, mesaId, { nome: nomeEdit.trim(), descricao: descEdit.trim() })
+      setMesa({ ...mesa, nome: nomeEdit.trim(), descricao: descEdit.trim() })
+      setEditandoMesa(false)
+      showToast('Mesa atualizada!')
+    } finally {
+      setSalvandoMesa(false)
+    }
+  }
+
   const togglePause = async () => {
     if (!mesa) return
     const next: Mesa['status'] = mesa.status === 'ativa' ? 'pausada' : 'ativa'
@@ -172,6 +200,36 @@ const GerenciadorDono: React.FC<{ donoUid: string; mesaId: string }> = ({ donoUi
       />
 
       <div style={{ maxWidth: 1000, margin: '0 auto', padding: '26px 32px' }}>
+
+        {/* Informações da mesa */}
+        <Panel style={{ marginBottom: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+            <PanelTitle>Informações da mesa</PanelTitle>
+            {!editandoMesa && (
+              <Button size="sm" variant="secondary" onClick={handleEditarMesa}>Editar</Button>
+            )}
+          </div>
+          {editandoMesa ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <Input label="Nome da mesa" value={nomeEdit} onChange={e => setNomeEdit(e.target.value)} />
+              <Textarea label="Descrição" value={descEdit} onChange={e => setDescEdit(e.target.value)} style={{ minHeight: 70 }} />
+              <div style={{ fontSize: 11.5, color: 'var(--ink-faint)' }}>
+                Sistema ({sistemaLabel[mesa.sistema]}) não dá pra trocar depois de criada — mudaria os atributos que as fichas já existentes esperam.
+              </div>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <Button variant="ghost" size="sm" onClick={() => setEditandoMesa(false)}>Cancelar</Button>
+                <Button size="sm" disabled={!nomeEdit.trim() || salvandoMesa} onClick={handleSalvarMesa}>
+                  {salvandoMesa ? 'Salvando…' : 'Salvar'}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <div style={{ fontSize: 13, color: 'var(--ink-dim)', marginBottom: 6 }}>{mesa.descricao || 'Sem descrição.'}</div>
+              <div style={{ fontSize: 12, color: 'var(--ink-faint)' }}>Sistema: {sistemaLabel[mesa.sistema]}</div>
+            </div>
+          )}
+        </Panel>
 
         {/* Compartilhar mesa */}
         <Panel style={{ marginBottom: 20 }}>

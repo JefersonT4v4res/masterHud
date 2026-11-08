@@ -8,41 +8,44 @@ Anote bugs encontrados na seção "Bugs encontrados" no final, mesmo que pequeno
 
 ## 1. Autenticação & sessão
 
-- [ ] Cadastro com senha fraca é rejeitado, com a checklist visual indicando o que falta
-- [ ] Cadastro com emails iguais (maiúsculo/minúsculo, espaços) é tratado corretamente
-- [ ] Email de verificação chega e o link funciona
-- [ ] Conta não verificada fica bloqueada em **todas** as rotas (tentar digitar URL direto, ex: `/jogos`)
-- [ ] Botão "Reenviar email" respeita o cooldown de 60s
-- [ ] Login com senha errada mostra mensagem clara (não erro técnico do Firebase)
-- [ ] "Esqueceu sua senha?" envia o email e o link funciona
-- [ ] Logout pede confirmação antes de sair
-- [ ] Abrir o app em duas abas, deslogar em uma → a outra também desloga sozinha
-- [ ] Deixar o token expirar (ou revogar sessão) → app desloga com "sessão expirou" em vez de travar
+- [X] Cadastro com senha fraca é rejeitado, com a checklist visual indicando o que falta - Funcionando e se erra a senha ele diz que não coincidem
+- [X] Cadastro com emails iguais (maiúsculo/minúsculo, espaços) é tratado corretamente - Tentei cadastrar um email que já tem conta e apareceu o aviso "Já existe uma conta com esse email."
+- [X] Email de verificação chega e o link funciona - Email chegou, antes de verificar cliquei em "já verifiquei, continuar" e não avançou (Perfeito!). Após clicar no link e voltar para a aba de login, clicar no "já verifiquei, continuar" funcionou.
+- [X] Conta não verificada fica bloqueada em **todas** as rotas (tentar digitar URL direto, ex: `/jogos`)
+- [X] Botão "Reenviar email" respeita o cooldown de 60s
+- [X] Login com senha errada mostra mensagem clara (não erro técnico do Firebase) - A mensagem aparece que "email ou senha estão incorretos", mas ao clicar para acessar diversas vezes com a senha errada a mensagem que aparece é "Muitas tentativas. Tente novamente mais tarde." mas o botão continua disponível e não vejo nenhum tipo de timout.
+- [X] "Esqueceu sua senha?" envia o email e o link funciona - funciona perfeitamente
+- [X] Logout pede confirmação antes de sair - funciona perfeitamente
+- [X] Abrir o app em duas abas, deslogar em uma → a outra também desloga sozinha - funciona perfeitamente
+- [ ] Deixar o token expirar (ou revogar sessão) → app desloga com "sessão expirou" em vez de travar - como testar isso? Eu deixei o app aberto aqui por horas e nada aconteceu
 
 ## 2. Perfil
 
-- [ ] Trocar nome, frase e foto salvam corretamente
-- [ ] Foto muito grande é redimensionada sem travar o navegador
-- [ ] Recarregar a página mantém os dados do perfil
+- [ ] Trocar nome, frase e foto salvam corretamente - Alterar foto está aparecendo "Não foi possível atualizar a foto. Tente uma imagem menor." talvez seria melhor ter a possibilidade de recortar o tamanho da imagem dentro da própria plataforma porque apesar da imagem ser pesada, ao recortar fica menor.
+Trocar o nome funcionou perfeitamente.
+frase: adicionei e salvei, mas ela não aparece em lugar nenhum e nem fica salva ao voltar no editor de perfil.
+Devia ter claro um botão de "voltar para o menu" do que apenas o botão "sair" isso confunde, parece que é sair do editor de perfil.
+- [X] Foto muito grande é redimensionada sem travar o navegador - eu subo a foto e realmente ajusta o tamanho, mas poderiamos adicionar uma funcionalidade de cortar a foto em um círculo para a pessoa escolher melhor o que mostrar da foto e as opções de zoom in e zoom out
+- [X] Recarregar a página mantém os dados do perfil - ainda não consegui subir salvar uma foto
 
 ## 3. Mesas
 
-- [ ] Criar mesa com nome vazio é bloqueado
-- [ ] Criar mesa com sistema "conhecido" x "customizado" — ambos salvam certo
-- [ ] Editar/pausar/reativar mesa reflete na lista de `/jogos`
-- [ ] Excluir mesa exige digitar o nome exato pra confirmar
-- [ ] Excluir mesa remove também personagens e resumo (checar que não sobra lixo)
-- [ ] Mesa pausada ainda é acessível pelo mestre (só fica marcada, não bloqueia)
+- [X] Criar mesa com nome vazio é bloqueado
+- [X] Criar mesa com sistema "conhecido" x "customizado" — ambos salvam certo
+- [X] Editar/pausar/reativar mesa reflete na lista de `/jogos` - Funciona. Criar a mesa, pausar, reativa e apagar, mas a parte de editar? Eu não consifo editar a descrição da mesa e nem o nome dela e nem o sistema caso tenha sido errado. Acho que o botão de "iniciar mesa" deveria levar para a tela de gerenciar combate e o botão de "gerenciar" deveria levar para a tela de edição das informações da mesa.
+- [X] Excluir mesa exige digitar o nome exato pra confirmar
+- [X] Excluir mesa remove também personagens e resumo (checar que não sobra lixo) - onde chegar se sobra? Quando crio uma criatura e apago a mesa, ela some junto.
+- [X] Mesa pausada ainda é acessível pelo mestre (só fica marcada, não bloqueia)
 
 ## 4. Personagens
 
-- [ ] Criar personagem jogador / NPC / monstro — cada tipo salva os campos certos
-- [ ] Upload de imagem principal e das imagens de estado (ferido/morto) funcionam
-- [ ] Bônus de atributo soma certo no total exibido
-- [ ] Adicionar/editar/remover ataque funciona
-- [ ] Adicionar/remover item do inventário funciona (Enter e botão)
-- [ ] Editar personagem existente carrega os dados certos e salva as alterações
-- [ ] Excluir personagem some da lista e não quebra o resumo do grupo
+- [X] Criar personagem jogador / NPC / monstro — cada tipo salva os campos certos
+- [X] Upload de imagem principal e das imagens de estado (ferido/morto) funcionam
+- [X] Bônus de atributo soma certo no total exibido
+- [X] Adicionar/editar/remover ataque funciona
+- [X] Adicionar/remover item do inventário funciona (Enter e botão)
+- [X] Editar personagem existente carrega os dados certos e salva as alterações
+- [X] Excluir personagem some da lista e não quebra o resumo do grupo
 
 ## 5. Compartilhamento de mesa — convite **(2 contas)**
 
@@ -118,8 +121,58 @@ Testar colando os valores abaixo em campos de texto livre (nome de personagem, d
 
 ## Bugs encontrados
 
-(preencher livremente conforme for testando)
+- Após voltar da verificação de email sou redirecionado para "https://www.masterhud.com.br/login" mas o que aparece é: 
+This page doesn’t exist
+It may have been moved, removed, or never existed.
 
+404 NOT_FOUND
+
+gru1::bnrwf-1794103857696-bf04e0673c51
+
+Debug this error
+
+404 NOT_FOUND
+
+Request ID: gru1::bnrwf-1794103857696-bf04e0673c51
+URL: https://www.masterhud.com.br/login
+User agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36 OPR/138.0.0.0
+Docs for this error code: https://vercel.com/docs/errors/not_found
 -
+- ao tentar acessar "https://www.masterhud.com.br/jogos" mesmo logado sou jogado para uma página preta escrita "This page doesn't exist": This page doesn’t exist
+It may have been moved, removed, or never existed.
+
+404 NOT_FOUND
+
+gru1::48ngz-1794105720293-c02f64b43226
+
+Mas se eu clico no card de "mesas" o caminho funciona
+
+- Os erros com links após atualizar a página está acontecendo com todos os caminhos, menos o menu principal
+
+- Atributos não tem limite de pontos, eu consegui deixar uma criatura ter 1010 pontos em sabedoria 
+
+---
+
+## Ajustes necessários
+
+- [X] Landing page - emoji de chave (🔑) está totalmente destoante dos outros ícones na tela (⌘, ⚔, ⬡)
+- [X] Menu principal - Mesma situação da langing page, o emoji (📖) está destoante dos demais
+
+- Criação de personsagens: Adicionado as três imagens dos estados do personagem e apareceu a mensagem: The value of property "imagemUrl" is longer than 1048487 bytes.
+Tentei trocar as fotos e o erro foi: Document 'projects/masterhud-tool/databases/(default)/documents/usuarios/iae9ISVhHAPM7dFrA5GdNA6aRQ03/mesas/nXGRYtqRrL4fqXICkI6N/personagens/vwJZz3ilOstRJeTKIr4m' cannot be written because its size (2,539,345 bytes) exceeds the maximum allowed size of 1,048,576 bytes.
+- Não tem como remover a foto selecionada. Eu escolhi, mas não tenho como me arrepender e deixar sem foto
 -
--
+
+## Dúvidas
+
+- "jeffsaj_cat@h.com" - esse tipo de email é aceito pela ferramenta, sei que apesar disso a pessoa não vai conseguir logar porque não vai conseguir confirmar o email, mas pensando em despediçar o envio da confirmação por email para algo inexistente eu pesquisei umas soluções e achei isso:
+[...]"O Script Ideal para quem já usa Ativação
+
+Você pode criar uma função que barra o usuário imediatamente no formulário se o e-mail falhar em qualquer um destes critérios:
+1. Contiver espaços (como o seu exemplo inicial).
+2. Tiver um domínio curto demais (como h.com, a.br, x.io).
+3. Usar sequências repetidas e óbvias de digitação rápida no teclado (como abc@, 123@, asdf@).
+"[...]
+
+- Coletar nome e Nickname, até porque se eu posso alterar meu nome no perfil, seria melhor ter um campo para nickname.
+- Eu apaguei um cadastro do firebase e ele continuou falando que o email já estava cadastrado, coloquei para alterar a senha, recebi o email, alterei e por fim consegui logar, mas ainda não encontro no registro do firebase

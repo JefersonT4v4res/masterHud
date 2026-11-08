@@ -6,34 +6,7 @@ import { Topbar } from '../../components/layout/Topbar'
 import { Button, Input, Textarea, Panel, PanelTitle, Avatar, Toast, Modal } from '../../components/ui'
 import { useAuth } from '../../context/AuthContext'
 import { auth, db } from '../../firebase'
-
-// Redimensiona pra um quadrado pequeno antes de salvar — mantém o documento do
-// Firestore leve. A foto fica só no Firestore: o `photoURL` do Firebase Auth tem
-// um limite rígido de ~2048 caracteres (é pensado pra URL, não pra base64 embutido).
-function resizeImageToBase64(file: File, size = 160, quality = 0.8): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onerror = reject
-    reader.onload = () => {
-      const img = new Image()
-      img.onerror = reject
-      img.onload = () => {
-        const canvas = document.createElement('canvas')
-        canvas.width = size
-        canvas.height = size
-        const ctx = canvas.getContext('2d')
-        if (!ctx) return reject(new Error('Canvas indisponível'))
-        const lado = Math.min(img.width, img.height)
-        const sx = (img.width - lado) / 2
-        const sy = (img.height - lado) / 2
-        ctx.drawImage(img, sx, sy, lado, lado, 0, 0, size, size)
-        resolve(canvas.toDataURL('image/jpeg', quality))
-      }
-      img.src = reader.result as string
-    }
-    reader.readAsDataURL(file)
-  })
-}
+import { resizeImageToBase64 } from '../../utils/imagem'
 
 export const Perfil: React.FC = () => {
   const { user, perfil, logout, refreshUser, refreshPerfil } = useAuth()
@@ -59,8 +32,12 @@ export const Perfil: React.FC = () => {
       const base64 = await resizeImageToBase64(file)
       await updateDoc(doc(db, 'usuarios', auth.currentUser.uid), { fotoUrl: base64 })
       await refreshPerfil()
-    } catch {
-      setErro('Não foi possível atualizar a foto. Tente uma imagem menor.')
+    } catch (err) {
+      // O redimensionamento já reduz pra 160x160 antes de salvar, então o tamanho do
+      // arquivo original quase nunca é a causa real — o mais comum é um formato que o
+      // navegador não consegue decodificar (ex: HEIC de iPhone) ou falha de rede.
+      console.error('Falha ao atualizar foto de perfil:', err)
+      setErro('Não foi possível atualizar a foto. Tente outra imagem (JPG ou PNG) ou verifique sua conexão.')
     }
   }
 
@@ -90,7 +67,7 @@ export const Perfil: React.FC = () => {
 
   return (
     <div style={{ minHeight: '100vh' }}>
-      <Topbar crumbs={[{ label: 'Perfil' }]} />
+      <Topbar crumbs={[{ label: 'Início', to: '/' }, { label: 'Perfil' }]} />
 
       <div style={{ maxWidth: 560, margin: '0 auto', padding: '32px' }}>
         <Panel style={{ textAlign: 'center', marginBottom: 20 }}>

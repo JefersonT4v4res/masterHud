@@ -17,6 +17,7 @@ export function Login() {
   const [erro, setErro] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
 
   useEffect(() => {
     if (sessionStorage.getItem(SESSION_EXPIRED_KEY)) {
@@ -24,6 +25,12 @@ export function Login() {
       setErro('Sua sessão expirou. Faça login novamente.');
     }
   }, []);
+
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const t = setTimeout(() => setCooldown((c) => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [cooldown]);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -35,6 +42,9 @@ export function Login() {
       navigate('/');
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Não foi possível entrar.');
+      // O Firebase não informa por quanto tempo o bloqueio dura — 30s é uma estimativa
+      // só pra impedir martelar o botão, não uma garantia de que vai liberar nesse prazo.
+      if ((err as { code?: string })?.code === 'auth/too-many-requests') setCooldown(30);
     } finally {
       setCarregando(false);
     }
@@ -124,8 +134,8 @@ export function Login() {
             >
               Esqueceu sua senha?
             </button>
-            <button className={styles.login__button} type="submit" disabled={carregando}>
-              {carregando ? 'Entrando…' : 'Entrar'}
+            <button className={styles.login__button} type="submit" disabled={carregando || cooldown > 0}>
+              {carregando ? 'Entrando…' : cooldown > 0 ? `Aguarde ${cooldown}s` : 'Entrar'}
             </button>
           </form>
 

@@ -6,6 +6,7 @@ import { getPersonagem, createPersonagem, updatePersonagem, getMesa, vincularPer
 import { auth } from '../firebase'
 import type { Personagem as TPersonagem, MoldeMesa, Ataque, BonusAtributo } from '../types'
 import { calcAtributo } from '../types'
+import { resizeImageToBase64 } from '../utils/imagem'
 
 // ── Helpers ──────────────────────────────────────────────────────────
 const defaultAtributos = (nomes: string[]) => nomes.map(nome => ({
@@ -38,25 +39,16 @@ function newAtaque(): Ataque {
   }
 }
 
-// Converte File para base64 para armazenar no IndexedDB
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(reader.result as string)
-    reader.onerror = reject
-    reader.readAsDataURL(file)
-  })
-}
-
 // ── ImageUploadCircle ─────────────────────────────────────────────────
 const ImageUploadCircle: React.FC<{
   src?: string
   label: string
   onClick: () => void
+  onRemove?: () => void
   size?: number
   tint?: 'gold' | 'blood'
   fallbackIcon?: string
-}> = ({ src, label, onClick, size = 80, tint, fallbackIcon = '+' }) => {
+}> = ({ src, label, onClick, onRemove, size = 80, tint, fallbackIcon = '+' }) => {
   const borderColor = tint === 'gold' ? 'var(--gold-dim)' : tint === 'blood' ? 'var(--blood-dim)' : 'var(--gold-dim)'
   return (
     <div>
@@ -86,6 +78,18 @@ const ImageUploadCircle: React.FC<{
           onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
           onMouseLeave={e => (e.currentTarget.style.opacity = '0')}
         >{src ? 'Trocar' : 'Adicionar'}</div>
+        {src && onRemove && (
+          <button
+            type="button"
+            onClick={e => { e.stopPropagation(); onRemove() }}
+            title="Remover imagem"
+            style={{
+              position: 'absolute', top: -2, right: -2, width: 20, height: 20, borderRadius: '50%',
+              background: 'var(--blood)', color: '#fff', border: '2px solid var(--bg-deep)',
+              fontSize: 11, lineHeight: 1, cursor: 'pointer', display: 'grid', placeItems: 'center',
+            }}
+          >✕</button>
+        )}
       </div>
       <div style={{ fontSize: 10, color: 'var(--ink-faint)', textAlign: 'center' }}>{label}</div>
     </div>
@@ -136,11 +140,13 @@ export const PersonagemForm: React.FC = () => {
   const update = (field: string, value: unknown) =>
     setForm(prev => prev ? { ...prev, [field]: value } : prev)
 
-  const updateAtributo = (nome: string, valor: number) =>
+  const updateAtributo = (nome: string, valor: number) => {
+    const clamped = Number.isFinite(valor) ? Math.max(0, Math.min(99, valor)) : 0
     setForm(prev => prev ? {
       ...prev,
-      atributos: prev.atributos.map(a => a.nome === nome ? { ...a, valor } : a),
+      atributos: prev.atributos.map(a => a.nome === nome ? { ...a, valor: clamped } : a),
     } : prev)
+  }
 
   const addBonus = () => {
     if (!novoBonus.atributo || !novoBonus.origem || !form) return
@@ -157,9 +163,16 @@ export const PersonagemForm: React.FC = () => {
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    const base64 = await fileToBase64(file)
-    update('imagemUrl', base64)
+    try {
+      const base64 = await resizeImageToBase64(file)
+      update('imagemUrl', base64)
+    } catch (err) {
+      console.error('Falha ao processar imagem:', err)
+      setErro('Não foi possível usar essa imagem. Tente outro arquivo (JPG ou PNG).')
+    }
   }
+
+  const handleRemoveImagem = () => update('imagemUrl', '')
 
   const handleImageEstadoUpload = async (
     e: React.ChangeEvent<HTMLInputElement>,
@@ -167,15 +180,17 @@ export const PersonagemForm: React.FC = () => {
   ) => {
     const file = e.target.files?.[0]
     if (!file) return
-    const base64 = await fileToBase64(file)
-    setForm(prev => {
-      if (!prev) return prev
-      return {
-        ...prev,
-        imagensEstado: { ...(prev.imagensEstado || {}), [estado]: base64 },
-      }
-    })
+    try {
+      const base64 = await resizeImageToBase64(file)
+      setForm(prev => prev ? { ...prev, imagensEstado: { ...(prev.imagensEstado || {}), [estado]: base64 } } : prev)
+    } catch (err) {
+      console.error('Falha ao processar imagem:', err)
+      setErro('Não foi possível usar essa imagem. Tente outro arquivo (JPG ou PNG).')
+    }
   }
+
+  const handleRemoveImagemEstado = (estado: 'normal' | 'ferido' | 'morto') =>
+    setForm(prev => prev ? { ...prev, imagensEstado: { ...(prev.imagensEstado || {}), [estado]: '' } } : prev)
 
   const handleSave = async () => {
     if (!form || !form.nome.trim()) return
@@ -273,6 +288,7 @@ export const PersonagemForm: React.FC = () => {
                     src={form.imagemUrl}
                     label="Normal (principal)"
                     onClick={() => imgInputRef.current?.click()}
+                    onRemove={form.imagemUrl ? handleRemoveImagem : undefined}
                     size={80}
                   />
                   <input ref={imgInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleImageUpload} />
@@ -285,6 +301,7 @@ export const PersonagemForm: React.FC = () => {
                       src={form.imagensEstado?.ferido}
                       label="Ferido (≤30% HP)"
                       onClick={() => imgFerido.current?.click()}
+                      onRemove={form.imagensEstado?.ferido ? () => handleRemoveImagemEstado('ferido') : undefined}
                       size={60}
                       tint="gold"
                       fallbackIcon="🤕"
@@ -297,6 +314,7 @@ export const PersonagemForm: React.FC = () => {
                       src={form.imagensEstado?.morto}
                       label="Morto (0 HP)"
                       onClick={() => imgMorto.current?.click()}
+                      onRemove={form.imagensEstado?.morto ? () => handleRemoveImagemEstado('morto') : undefined}
                       size={60}
                       tint="blood"
                       fallbackIcon="💀"
@@ -365,7 +383,7 @@ export const PersonagemForm: React.FC = () => {
                     }}>
                       <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--ink-faint)', marginBottom: 4 }}>{nome}</div>
                       <input
-                        type="number" value={atr?.valor ?? 0}
+                        type="number" min={0} max={99} value={atr?.valor ?? 0}
                         onChange={e => updateAtributo(nome, Number(e.target.value))}
                         style={{ width: '100%', background: 'none', border: 'none', color: 'var(--ink)', textAlign: 'center', fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700, outline: 'none' }}
                       />
