@@ -96,6 +96,10 @@ export interface Personagem {
   // uid do jogador dono dessa ficha. null = slot 'jogador' ainda não reivindicado.
   // Sempre undefined/ausente em NPCs e monstros.
   jogadorUid?: string | null
+  // Nome de exibição de quem reivindicou essa ficha, gravado pelo próprio jogador no
+  // momento do vínculo (claim) — o mestre não tem permissão de ler o perfil de outra
+  // conta no Firestore, então sem isso não haveria como mostrar "vinculado a fulano".
+  jogadorNome?: string | null
 }
 
 // Calcula o valor total de um atributo (base + todos os bônus)
@@ -107,6 +111,14 @@ export function calcAtributo(personagem: Personagem, nomeAtributo: string): numb
     .filter(b => b.atributo === nomeAtributo || b.atributo === nomeAtributo)
     .reduce((sum, b) => sum + b.valor, 0)
   return base + bonus
+}
+
+// Imagem a exibir pro estado atual do personagem — cai pra `imagemUrl` quando não
+// há imagem específica de estado (ou quando o personagem está vivo e saudável).
+export function imagemAtual(p: Pick<Personagem, 'imagemUrl' | 'imagensEstado' | 'hpAtual' | 'hpMaximo' | 'status'>): string | undefined {
+  if ((p.status === 'morto' || p.hpAtual <= 0) && p.imagensEstado?.morto) return p.imagensEstado.morto
+  if (p.hpMaximo > 0 && p.hpAtual / p.hpMaximo <= 0.3 && p.imagensEstado?.ferido) return p.imagensEstado.ferido
+  return p.imagemUrl
 }
 
 export interface CombatParticipant {

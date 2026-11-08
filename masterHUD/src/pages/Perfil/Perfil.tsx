@@ -41,6 +41,12 @@ export const Perfil: React.FC = () => {
     }
   }
 
+  const handleRemoverFoto = async () => {
+    if (!auth.currentUser) return
+    await updateDoc(doc(db, 'usuarios', auth.currentUser.uid), { fotoUrl: '' })
+    await refreshPerfil()
+  }
+
   const handleSalvar = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!auth.currentUser || !nome.trim()) return
@@ -86,6 +92,19 @@ export const Perfil: React.FC = () => {
               onMouseEnter={ev => (ev.currentTarget.style.opacity = '1')}
               onMouseLeave={ev => (ev.currentTarget.style.opacity = '0')}
             >Trocar</div>
+            {perfil?.fotoUrl && (
+              <button
+                type="button"
+                onClick={e => { e.stopPropagation(); handleRemoverFoto() }}
+                title="Remover foto"
+                style={{
+                  position: 'absolute', top: -4, right: -4, width: 24, height: 24, borderRadius: '50%',
+                  background: 'var(--blood)', color: '#fff', border: '2px solid var(--bg-deep)',
+                  fontSize: 13, lineHeight: 1, cursor: 'pointer', display: 'grid', placeItems: 'center',
+                  zIndex: 1, boxShadow: '0 1px 4px rgba(0,0,0,0.4)',
+                }}
+              >✕</button>
+            )}
           </div>
           <input ref={fotoInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFotoChange} />
           <div style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 600, margin: '14px 0 2px' }}>

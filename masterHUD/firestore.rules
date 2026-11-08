@@ -47,11 +47,12 @@ service cloud.firestore {
                 && request.resource.data.jogadorUid == request.auth.uid);
 
           allow update: if souDono()
-            // "claim" de um slot ainda livre: só pode setar o próprio uid, nada mais.
+            // "claim" de um slot ainda livre: só pode setar o próprio uid e o nome
+            // (autodeclarado, usado só pra exibir "vinculado a fulano" pro mestre).
             || (ehMembro()
                 && resource.data.tipo == 'jogador'
                 && resource.data.jogadorUid == null
-                && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['jogadorUid'])
+                && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['jogadorUid', 'jogadorNome'])
                 && request.resource.data.jogadorUid == request.auth.uid)
             // edição da própria ficha já claimada: não pode mudar o dono nem o tipo.
             || (resource.data.jogadorUid == request.auth.uid
@@ -68,6 +69,16 @@ service cloud.firestore {
             (request.auth.uid == uid || request.auth.uid in get(/databases/$(database)/documents/usuarios/$(uid)/mesas/$(mesaId)).data.membros);
           allow write: if request.auth != null && request.auth.uid == uid;
         }
+
+        // Registro autodeclarado "qual é meu nome nessa mesa" — existe só pra dar ao
+        // mestre uma lista legível de quem já entrou (pro dropdown de atribuir ficha),
+        // já que ele não tem permissão de ler o perfil de outra conta. Não concede
+        // acesso a nada: quem pode reivindicar/editar ficha continua sendo decidido
+        // só pelas regras de /personagens acima.
+        match /membrosInfo/{memberUid} {
+          allow read: if request.auth != null && request.auth.uid == uid;
+          allow write: if request.auth != null && request.auth.uid == memberUid;
+        }
       }
     }
 
@@ -78,6 +89,7 @@ service cloud.firestore {
       allow get: if request.auth != null;
       allow list: if false;
       allow create: if request.auth != null && request.resource.data.donoUid == request.auth.uid;
+      allow delete: if request.auth != null && resource.data.donoUid == request.auth.uid;
     }
   }
 }

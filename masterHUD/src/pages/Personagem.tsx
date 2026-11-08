@@ -2,11 +2,12 @@ import React, { useEffect, useState, useCallback, useRef } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Topbar } from '../components/layout/Topbar'
 import { Button, Input, Textarea, Select, Panel, PanelTitle, HpBar, XpBar, Toast, Modal } from '../components/ui'
-import { getPersonagem, createPersonagem, updatePersonagem, getMesa, vincularPersonagemParticipando } from '../db'
+import { getPersonagem, createPersonagem, updatePersonagem, getMesa, vincularPersonagemParticipando, ACESSO_REVOGADO_KEY } from '../db'
 import { auth } from '../firebase'
 import type { Personagem as TPersonagem, MoldeMesa, Ataque, BonusAtributo } from '../types'
 import { calcAtributo } from '../types'
 import { resizeImageToBase64 } from '../utils/imagem'
+import { aplicarXp } from '../utils/xp'
 
 // ── Helpers ──────────────────────────────────────────────────────────
 const defaultAtributos = (nomes: string[]) => nomes.map(nome => ({
@@ -52,41 +53,45 @@ const ImageUploadCircle: React.FC<{
   const borderColor = tint === 'gold' ? 'var(--gold-dim)' : tint === 'blood' ? 'var(--blood-dim)' : 'var(--gold-dim)'
   return (
     <div>
-      <div
-        onClick={onClick}
-        style={{
-          width: size, height: size, borderRadius: '50%',
-          border: `2px dashed ${borderColor}`,
-          margin: '0 auto 6px',
-          cursor: 'pointer', overflow: 'hidden',
-          display: 'grid', placeItems: 'center',
-          background: 'var(--bg-card)', position: 'relative',
-        }}
-      >
-        {src ? (
-          <img src={src} alt={label} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-        ) : (
-          <span style={{ fontSize: size * 0.3, color: 'var(--ink-faint)', userSelect: 'none' }}>
-            {fallbackIcon}
-          </span>
-        )}
-        <div style={{
-          position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.45)',
-          display: 'grid', placeItems: 'center', opacity: 0, transition: 'opacity 0.15s',
-          fontSize: 10, color: 'var(--ink)', textAlign: 'center',
-        }}
-          onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
-          onMouseLeave={e => (e.currentTarget.style.opacity = '0')}
-        >{src ? 'Trocar' : 'Adicionar'}</div>
+      {/* Wrapper sem overflow:hidden — o botão de remover fica fora do círculo
+          recortado, senão fica cortado pela máscara circular e quase não clica. */}
+      <div style={{ width: size, height: size, position: 'relative', margin: '0 auto 6px' }}>
+        <div
+          onClick={onClick}
+          style={{
+            width: size, height: size, borderRadius: '50%',
+            border: `2px dashed ${borderColor}`,
+            cursor: 'pointer', overflow: 'hidden',
+            display: 'grid', placeItems: 'center',
+            background: 'var(--bg-card)', position: 'relative',
+          }}
+        >
+          {src ? (
+            <img src={src} alt={label} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          ) : (
+            <span style={{ fontSize: size * 0.3, color: 'var(--ink-faint)', userSelect: 'none' }}>
+              {fallbackIcon}
+            </span>
+          )}
+          <div style={{
+            position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.45)',
+            display: 'grid', placeItems: 'center', opacity: 0, transition: 'opacity 0.15s',
+            fontSize: 10, color: 'var(--ink)', textAlign: 'center',
+          }}
+            onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
+            onMouseLeave={e => (e.currentTarget.style.opacity = '0')}
+          >{src ? 'Trocar' : 'Adicionar'}</div>
+        </div>
         {src && onRemove && (
           <button
             type="button"
             onClick={e => { e.stopPropagation(); onRemove() }}
             title="Remover imagem"
             style={{
-              position: 'absolute', top: -2, right: -2, width: 20, height: 20, borderRadius: '50%',
+              position: 'absolute', top: -4, right: -4, width: 22, height: 22, borderRadius: '50%',
               background: 'var(--blood)', color: '#fff', border: '2px solid var(--bg-deep)',
-              fontSize: 11, lineHeight: 1, cursor: 'pointer', display: 'grid', placeItems: 'center',
+              fontSize: 12, lineHeight: 1, cursor: 'pointer', display: 'grid', placeItems: 'center',
+              zIndex: 1, boxShadow: '0 1px 4px rgba(0,0,0,0.4)',
             }}
           >✕</button>
         )}
@@ -113,7 +118,11 @@ export const PersonagemForm: React.FC = () => {
 
   const [molde, setMolde]       = useState<MoldeMesa | null>(null)
   const [form, setForm]         = useState<Omit<TPersonagem, 'id'> | null>(null)
-  const [toast, setToast]       = useState(false)
+  const [toastMsg, setToastMsg] = useState<string | null>(null)
+  // Snapshot do xp/nível/xpProximoNivel como veio do Firestore, pra calcular o
+  // level up automático comparando com o que o mestre digitou no campo "XP atual"
+  // (ver utils/xp.ts) — sem isso não dá pra saber quanto XP foi realmente ganho.
+  const xpOriginalRef = useRef<{ xp: number; nivel: number; xpProximoNivel: number } | null>(null)
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro]         = useState<string | null>(null)
   const [mesaNome, setMesaNome] = useState('')
@@ -123,17 +132,32 @@ export const PersonagemForm: React.FC = () => {
   const [novoBonus, setNovoBonus]       = useState({ atributo: '', valor: 0, origem: '' })
 
   const load = useCallback(async () => {
-    const m = await getMesa(donoUid, mesaId)
-    if (m) setMesaNome(m.nome)
-    const atrs = m?.molde?.atributos || ['Força', 'Destreza', 'Constituição', 'Inteligência', 'Sabedoria', 'Carisma']
-    setMolde(m?.molde || null)
-    if (isEdit && personagemId) {
-      const p = await getPersonagem(donoUid, mesaId, personagemId)
-      if (p) setForm({ ...p, inventario: (p as any).inventario || [], bonusAtributos: p.bonusAtributos || [] })
-    } else {
-      setForm(defaultPersonagem(tipoParam, atrs, souDono ? null : meuUid))
+    try {
+      const m = await getMesa(donoUid, mesaId)
+      if (m) setMesaNome(m.nome)
+      const atrs = m?.molde?.atributos || ['Força', 'Destreza', 'Constituição', 'Inteligência', 'Sabedoria', 'Carisma']
+      setMolde(m?.molde || null)
+      if (isEdit && personagemId) {
+        const p = await getPersonagem(donoUid, mesaId, personagemId)
+        if (p) {
+          setForm({ ...p, inventario: (p as any).inventario || [], bonusAtributos: p.bonusAtributos || [] })
+          xpOriginalRef.current = { xp: p.xp, nivel: p.nivel, xpProximoNivel: p.xpProximoNivel }
+        }
+      } else {
+        setForm(defaultPersonagem(tipoParam, atrs, souDono ? null : meuUid))
+      }
+    } catch (err) {
+      // Acesso negado de verdade (ex: removido da mesa, ficha desvinculada entre
+      // uma tela e outra) — não é sessão inválida, não desloga ninguém (ver
+      // db/index.ts, guarded()). Só volta pra lista de mesas com um aviso.
+      if ((err as { code?: string })?.code === 'permission-denied') {
+        sessionStorage.setItem(ACESSO_REVOGADO_KEY, '1')
+        navigate('/jogos', { replace: true })
+        return
+      }
+      throw err
     }
-  }, [donoUid, mesaId, personagemId, isEdit, tipoParam])
+  }, [donoUid, mesaId, personagemId, isEdit, tipoParam, navigate])
 
   useEffect(() => { load() }, [load])
 
@@ -198,14 +222,36 @@ export const PersonagemForm: React.FC = () => {
     setErro(null)
     try {
       const payload = { ...form, atualizadoEm: new Date().toISOString() }
+      // Editar um NPC/monstro e trocar o tipo pra "jogador" não cria o campo
+      // `jogadorUid` sozinho — e a query de slots livres (`getSlotsLivres`) só
+      // encontra documentos onde o campo existe E é null, nunca onde ele está
+      // simplesmente ausente. Sem isso, o slot fica invisível pra quem entra na mesa.
+      if (payload.tipo === 'jogador' && payload.jogadorUid === undefined) payload.jogadorUid = null
+      if (!souDono && payload.jogadorUid === meuUid) {
+        payload.jogadorNome = auth.currentUser?.displayName || auth.currentUser?.email || 'Jogador'
+      }
+      // Level up automático quando o XP sobe o suficiente pelo campo "XP atual" —
+      // só entra em ação se o nível não foi mexido manualmente na mesma edição
+      // (nesse caso respeitamos o valor que foi digitado de propósito).
+      let subiuNivelMsg: string | null = null
+      const original = xpOriginalRef.current
+      if (original && payload.nivel === original.nivel) {
+        const ganho = payload.xp - original.xp
+        if (ganho > 0) {
+          const resultado = aplicarXp(original, ganho)
+          payload.nivel = resultado.nivel
+          payload.xpProximoNivel = resultado.xpProximoNivel
+          if (resultado.subiuNivel) subiuNivelMsg = `🎉 ${payload.nome} subiu de nível!`
+        }
+      }
       if (isEdit && personagemId) {
         await updatePersonagem(donoUid, mesaId, personagemId, payload)
       } else {
         const novoId = await createPersonagem(donoUid, mesaId, payload)
         if (!souDono) await vincularPersonagemParticipando(mesaId, novoId)
       }
-      setToast(true)
-      setTimeout(() => navigate(`/mesa/${donoUid}/${mesaId}`), 1000)
+      setToastMsg(subiuNivelMsg || (isEdit ? 'Alterações salvas!' : 'Personagem criado!'))
+      setTimeout(() => navigate(`/mesa/${donoUid}/${mesaId}`), subiuNivelMsg ? 1800 : 1000)
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Não foi possível salvar o personagem.')
     } finally {
@@ -554,7 +600,7 @@ export const PersonagemForm: React.FC = () => {
         )}
       </Modal>
 
-      <Toast message={isEdit ? 'Alterações salvas!' : 'Personagem criado!'} visible={toast} />
+      <Toast message={toastMsg || ''} visible={!!toastMsg} />
     </div>
   )
 }
@@ -575,8 +621,17 @@ export const FichaPersonagem: React.FC = () => {
     Promise.all([getMesa(donoUid, mesaId), getPersonagem(donoUid, mesaId, personagemId)]).then(([m, p]) => {
       if (m) setMesaNome(m.nome)
       if (p) setPersonagem(p)
+    }).catch(err => {
+      // Acesso negado de verdade (ex: removido da mesa, ficha desvinculada) — não
+      // é sessão inválida, não desloga ninguém (ver db/index.ts, guarded()).
+      if ((err as { code?: string })?.code === 'permission-denied') {
+        sessionStorage.setItem(ACESSO_REVOGADO_KEY, '1')
+        navigate('/jogos', { replace: true })
+        return
+      }
+      throw err
     })
-  }, [donoUid, mesaId, personagemId])
+  }, [donoUid, mesaId, personagemId, navigate])
 
   if (!personagem) return null
   const podeEditar = souDono || personagem.jogadorUid === meuUid
@@ -602,6 +657,11 @@ export const FichaPersonagem: React.FC = () => {
             )}
             <div style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 600 }}>{personagem.nome}</div>
             <div style={{ fontSize: 13, color: 'var(--ink-dim)', marginBottom: 6 }}>{personagem.raca} · {personagem.classe}</div>
+            {souDono && personagem.tipo === 'jogador' && (
+              <div style={{ fontSize: 11.5, color: personagem.jogadorUid ? 'var(--gold)' : 'var(--ink-faint)' }}>
+                {personagem.jogadorUid ? `Pertence a: ${personagem.jogadorNome || 'conta vinculada'}` : 'Slot livre — ninguém vinculado'}
+              </div>
+            )}
           </div>
           <HpBar atual={personagem.hpAtual} maximo={personagem.hpMaximo} />
           {personagem.tipo === 'jogador' && <div style={{ marginTop: 12 }}><XpBar xp={personagem.xp} xpProximo={personagem.xpProximoNivel} nivel={personagem.nivel} /></div>}

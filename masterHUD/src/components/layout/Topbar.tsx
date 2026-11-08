@@ -14,10 +14,11 @@ export const Topbar: React.FC<TopbarProps> = ({ crumbs, right }) => {
   return (
     <div style={{
       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      flexWrap: 'wrap', rowGap: 10,
       padding: '16px 32px', borderBottom: '1px solid var(--line)',
       background: 'var(--bg-panel)', position: 'sticky', top: 0, zIndex: 50,
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 18, minWidth: 0, flexWrap: 'wrap', rowGap: 6 }}>
         {/* Brand */}
         <div
           onClick={() => navigate('/')}
@@ -54,7 +55,7 @@ export const Topbar: React.FC<TopbarProps> = ({ crumbs, right }) => {
         )}
       </div>
 
-      {right && <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>{right}</div>}
+      {right && <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>{right}</div>}
     </div>
   )
 }

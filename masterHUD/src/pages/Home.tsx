@@ -3,9 +3,12 @@ import { useNavigate } from 'react-router-dom'
 import { Topbar } from '../components/layout/Topbar'
 import { UserMenu } from '../components/layout/UserMenu'
 import { Button, Badge, Panel, Avatar } from '../components/ui'
-import { getMesas } from '../db'
+import { getMesas, getMesasParticipandoValidas } from '../db'
 import { useAuth } from '../context/AuthContext'
+import { auth } from '../firebase'
 import type { Mesa } from '../types'
+
+interface MesaListada extends Mesa { donoUid: string; souDono: boolean }
 
 const statusColor: Record<Mesa['status'], 'moss' | 'neutral' | 'blood'> = {
   ativa: 'moss', pausada: 'neutral', encerrada: 'blood',
@@ -18,10 +21,20 @@ export const Home: React.FC = () => {
   const navigate = useNavigate()
   const { user, perfil } = useAuth()
   const nomeUsuario = user?.displayName || user?.email || 'Usuário'
-  const [mesas, setMesas] = useState<Mesa[]>([])
+  const [mesas, setMesas] = useState<MesaListada[]>([])
 
-  useEffect(() => { getMesas().then(setMesas) }, [])
+  useEffect(() => {
+    const meuUid = auth.currentUser!.uid
+    const load = async () => {
+      const [proprias, participando] = await Promise.all([getMesas(), getMesasParticipandoValidas()])
+      const propriasListadas: MesaListada[] = proprias.map(m => ({ ...m, donoUid: meuUid, souDono: true }))
+      const participandoListadas: MesaListada[] = participando.map(m => ({ ...m, souDono: false }))
+      setMesas([...propriasListadas, ...participandoListadas])
+    }
+    load()
+  }, [])
 
+  const criadas = mesas.filter(m => m.souDono)
   const ativas = mesas.filter(m => m.status === 'ativa')
   const pausadas = mesas.filter(m => m.status === 'pausada')
 
@@ -29,7 +42,7 @@ export const Home: React.FC = () => {
     <div style={{ minHeight: '100vh' }}>
       <Topbar right={<UserMenu />} />
 
-      <div style={{ maxWidth: 1200, margin: '0 auto', padding: '28px 32px', display: 'grid', gridTemplateColumns: '1fr 300px', gap: 22 }}>
+      <div className="mh-page-grid" style={{ maxWidth: 1200, margin: '0 auto', padding: '28px 32px' }}>
         {/* Conteúdo principal */}
         <div>
           <div style={{ fontFamily: 'var(--font-display)', fontSize: 26, fontWeight: 600, marginBottom: 4 }}>
@@ -43,7 +56,7 @@ export const Home: React.FC = () => {
           <div style={{ fontSize: 11, letterSpacing: '1.5px', textTransform: 'uppercase', color: 'var(--ink-faint)', marginBottom: 14 }}>
             Ações rápidas
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 32 }}>
+          <div className="mh-quick-actions" style={{ marginBottom: 32 }}>
             {[
               { icon: '⚿', title: 'Entrar numa mesa', desc: 'Use um código de convite de outro mestre', to: '/mesa/entrar' },
               { icon: '✦', title: 'Criar nova mesa', desc: 'Configure jogadores, sistema e cenário', to: '/mesa/nova' },
@@ -75,7 +88,7 @@ export const Home: React.FC = () => {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {mesas.slice(0, 3).map(mesa => (
                   <div key={mesa.id}
-                    onClick={() => navigate(`/mesa/${user!.uid}/${mesa.id}`)}
+                    onClick={() => navigate(`/mesa/${mesa.donoUid}/${mesa.id}`)}
                     style={{
                       display: 'flex', alignItems: 'center', gap: 14,
                       background: 'var(--bg-card)', border: '1px solid var(--line)',
@@ -85,17 +98,18 @@ export const Home: React.FC = () => {
                     onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--line)')}
                   >
                     <div style={{
-                      width: 44, height: 44, borderRadius: 8,
+                      width: 44, height: 44, borderRadius: 8, overflow: 'hidden',
                       background: 'var(--gold-dim)', display: 'grid', placeItems: 'center',
                       fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--bg-deep)', fontSize: 16,
                       flexShrink: 0,
                     }}>
-                      {mesa.nome[0]}
+                      {mesa.imagemUrl ? <img src={mesa.imagemUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : mesa.nome[0]}
                     </div>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 2 }}>{mesa.nome}</div>
                       <div style={{ fontSize: 12, color: 'var(--ink-faint)' }}>{mesa.descricao || 'Sem descrição'}</div>
                     </div>
+                    {!mesa.souDono && <Badge color="neutral">Jogador</Badge>}
                     <Badge color={statusColor[mesa.status]}>{statusLabel[mesa.status]}</Badge>
                     <span style={{ color: 'var(--ink-faint)' }}>→</span>
                   </div>
@@ -128,7 +142,7 @@ export const Home: React.FC = () => {
             )}
           </div>
           <div style={{ fontSize: 12, color: 'var(--ink-faint)', marginBottom: 20 }}>
-            {mesas.length} mesa{mesas.length !== 1 ? 's' : ''} criada{mesas.length !== 1 ? 's' : ''}
+            {criadas.length} mesa{criadas.length !== 1 ? 's' : ''} criada{criadas.length !== 1 ? 's' : ''}
           </div>
           <div style={{ height: 1, background: 'var(--line)', marginBottom: 18 }} />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>

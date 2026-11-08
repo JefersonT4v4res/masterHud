@@ -1,15 +1,17 @@
-import React, { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Topbar } from '../components/layout/Topbar'
-import { Button, Badge, Panel, PanelTitle, Avatar, HpBar, Modal, Toast, Input, Textarea } from '../components/ui'
+import { Button, Badge, Panel, PanelTitle, Avatar, HpBar, Modal, Toast, Input, Textarea, Select } from '../components/ui'
 import { DiceRollerModal } from '../components/DiceRollerModal'
 import {
-  getMesa, getMesasParticipando, getPersonagem, getPersonagens, getResumoJogadores,
+  getMesa, getPersonagens, getResumoJogadores, getMinhaFicha,
   getOrCreateConvite, removerMembro, refreshResumoJogadores, updateMesa, deletePersonagem, deleteMesa,
+  desvincularPersonagem, getMembrosInfo, reatribuirPersonagem, ACESSO_REVOGADO_KEY,
 } from '../db'
 import { rollDice } from '../hooks/useDiceRoller'
 import { auth } from '../firebase'
 import type { Mesa, Personagem, ResumoJogador, SystemType } from '../types'
+import { resizeImageToBase64 } from '../utils/imagem'
 
 const sistemaLabel: Record<SystemType, string> = {
   dnd5e: 'D&D 5ª Edição', tormenta20: 'Tormenta20', custom: 'Sistema customizado',
@@ -45,12 +47,20 @@ const GerenciadorDono: React.FC<{ donoUid: string; mesaId: string }> = ({ donoUi
   const [editandoMesa, setEditandoMesa] = useState(false)
   const [nomeEdit, setNomeEdit]       = useState('')
   const [descEdit, setDescEdit]       = useState('')
+  const [imagemEdit, setImagemEdit]   = useState<string | undefined>(undefined)
   const [salvandoMesa, setSalvandoMesa] = useState(false)
+  const imgMesaRef = useRef<HTMLInputElement>(null)
+  const [membrosInfo, setMembrosInfo] = useState<{ uid: string; nome: string }[]>([])
+  const [atribuirTarget, setAtribuirTarget] = useState<Personagem | null>(null)
+  const [uidAtribuir, setUidAtribuir] = useState('')
+  const [erroAtribuir, setErroAtribuir] = useState<string | null>(null)
+  const [salvandoAtribuir, setSalvandoAtribuir] = useState(false)
 
   const load = useCallback(async () => {
-    const [m, ps] = await Promise.all([getMesa(donoUid, mesaId), getPersonagens(donoUid, mesaId)])
+    const [m, ps, mi] = await Promise.all([getMesa(donoUid, mesaId), getPersonagens(donoUid, mesaId), getMembrosInfo(donoUid, mesaId)])
     if (m) { setMesa(m); setCodigo(m.conviteCodigo || null) }
     setPersonagens(ps)
+    setMembrosInfo(mi)
     try {
       await refreshResumoJogadores(donoUid, mesaId)
     } catch (err) {
@@ -105,6 +115,37 @@ const GerenciadorDono: React.FC<{ donoUid: string; mesaId: string }> = ({ donoUi
     showToast('Personagem removido.')
   }
 
+  const handleDesvincular = async (p: Personagem) => {
+    if (!p.id) return
+    await desvincularPersonagem(donoUid, mesaId, p.id)
+    load()
+    showToast(`${p.nome} voltou a ser um slot livre.`)
+  }
+
+  const handleAbrirAtribuir = (p: Personagem) => {
+    setAtribuirTarget(p)
+    setUidAtribuir(p.jogadorUid || '')
+    setErroAtribuir(null)
+  }
+
+  const handleConfirmarAtribuir = async () => {
+    if (!atribuirTarget?.id || !uidAtribuir) return
+    const membro = membrosInfo.find(m => m.uid === uidAtribuir)
+    if (!membro) return
+    setSalvandoAtribuir(true)
+    setErroAtribuir(null)
+    try {
+      await reatribuirPersonagem(donoUid, mesaId, atribuirTarget.id, membro.uid, membro.nome)
+      setAtribuirTarget(null)
+      load()
+      showToast(`${atribuirTarget.nome} agora é jogado por ${membro.nome}.`)
+    } catch (err) {
+      setErroAtribuir(err instanceof Error ? err.message : 'Não foi possível atribuir a ficha.')
+    } finally {
+      setSalvandoAtribuir(false)
+    }
+  }
+
   const handleRemoverMembro = async (uidJogador: string) => {
     await removerMembro(donoUid, mesaId, uidJogador)
     setMesa(prev => prev ? { ...prev, membros: prev.membros.filter(u => u !== uidJogador) } : prev)
@@ -140,15 +181,28 @@ const GerenciadorDono: React.FC<{ donoUid: string; mesaId: string }> = ({ donoUi
     if (!mesa) return
     setNomeEdit(mesa.nome)
     setDescEdit(mesa.descricao)
+    setImagemEdit(mesa.imagemUrl)
     setEditandoMesa(true)
+  }
+
+  const handleImagemMesaUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    try {
+      setImagemEdit(await resizeImageToBase64(file))
+    } catch (err) {
+      console.error('Falha ao processar imagem da mesa:', err)
+      showToast('Não foi possível usar essa imagem.')
+    }
   }
 
   const handleSalvarMesa = async () => {
     if (!mesa || !nomeEdit.trim()) return
     setSalvandoMesa(true)
     try {
-      await updateMesa(donoUid, mesaId, { nome: nomeEdit.trim(), descricao: descEdit.trim() })
-      setMesa({ ...mesa, nome: nomeEdit.trim(), descricao: descEdit.trim() })
+      const changes = { nome: nomeEdit.trim(), descricao: descEdit.trim(), imagemUrl: imagemEdit || '' }
+      await updateMesa(donoUid, mesaId, changes)
+      setMesa({ ...mesa, ...changes })
       setEditandoMesa(false)
       showToast('Mesa atualizada!')
     } finally {
@@ -210,23 +264,54 @@ const GerenciadorDono: React.FC<{ donoUid: string; mesaId: string }> = ({ donoUi
             )}
           </div>
           {editandoMesa ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <Input label="Nome da mesa" value={nomeEdit} onChange={e => setNomeEdit(e.target.value)} />
-              <Textarea label="Descrição" value={descEdit} onChange={e => setDescEdit(e.target.value)} style={{ minHeight: 70 }} />
-              <div style={{ fontSize: 11.5, color: 'var(--ink-faint)' }}>
-                Sistema ({sistemaLabel[mesa.sistema]}) não dá pra trocar depois de criada — mudaria os atributos que as fichas já existentes esperam.
+            <div style={{ display: 'flex', gap: 16 }}>
+              <div style={{ textAlign: 'center', flexShrink: 0 }}>
+                <div
+                  onClick={() => imgMesaRef.current?.click()}
+                  title="Trocar imagem"
+                  style={{
+                    width: 80, height: 80, borderRadius: 10, border: '2px dashed var(--gold-dim)',
+                    cursor: 'pointer', overflow: 'hidden', display: 'grid', placeItems: 'center',
+                    background: 'var(--bg-card)', marginBottom: 6,
+                  }}
+                >
+                  {imagemEdit ? (
+                    <img src={imagemEdit} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  ) : (
+                    <span style={{ fontSize: 22, color: 'var(--ink-faint)' }}>+</span>
+                  )}
+                </div>
+                <input ref={imgMesaRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleImagemMesaUpload} />
+                {imagemEdit && (
+                  <button type="button" onClick={() => setImagemEdit(undefined)}
+                    style={{ fontSize: 11, color: 'var(--blood)', background: 'none', border: 'none', cursor: 'pointer' }}>
+                    Remover
+                  </button>
+                )}
               </div>
-              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                <Button variant="ghost" size="sm" onClick={() => setEditandoMesa(false)}>Cancelar</Button>
-                <Button size="sm" disabled={!nomeEdit.trim() || salvandoMesa} onClick={handleSalvarMesa}>
-                  {salvandoMesa ? 'Salvando…' : 'Salvar'}
-                </Button>
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <Input label="Nome da mesa" value={nomeEdit} onChange={e => setNomeEdit(e.target.value)} />
+                <Textarea label="Descrição" value={descEdit} onChange={e => setDescEdit(e.target.value)} style={{ minHeight: 70 }} />
+                <div style={{ fontSize: 11.5, color: 'var(--ink-faint)' }}>
+                  Sistema ({sistemaLabel[mesa.sistema]}) não dá pra trocar depois de criada — mudaria os atributos que as fichas já existentes esperam.
+                </div>
+                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                  <Button variant="ghost" size="sm" onClick={() => setEditandoMesa(false)}>Cancelar</Button>
+                  <Button size="sm" disabled={!nomeEdit.trim() || salvandoMesa} onClick={handleSalvarMesa}>
+                    {salvandoMesa ? 'Salvando…' : 'Salvar'}
+                  </Button>
+                </div>
               </div>
             </div>
           ) : (
-            <div>
-              <div style={{ fontSize: 13, color: 'var(--ink-dim)', marginBottom: 6 }}>{mesa.descricao || 'Sem descrição.'}</div>
-              <div style={{ fontSize: 12, color: 'var(--ink-faint)' }}>Sistema: {sistemaLabel[mesa.sistema]}</div>
+            <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+              {mesa.imagemUrl && (
+                <img src={mesa.imagemUrl} alt="" style={{ width: 60, height: 60, borderRadius: 10, objectFit: 'cover', flexShrink: 0 }} />
+              )}
+              <div>
+                <div style={{ fontSize: 13, color: 'var(--ink-dim)', marginBottom: 6 }}>{mesa.descricao || 'Sem descrição.'}</div>
+                <div style={{ fontSize: 12, color: 'var(--ink-faint)' }}>Sistema: {sistemaLabel[mesa.sistema]}</div>
+              </div>
             </div>
           )}
         </Panel>
@@ -259,9 +344,13 @@ const GerenciadorDono: React.FC<{ donoUid: string; mesaId: string }> = ({ donoUi
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {mesa.membros.map(membroUid => {
                   const ficha = jogadores.find(p => p.jogadorUid === membroUid)
+                  const nomeConta = membrosInfo.find(m => m.uid === membroUid)?.nome || 'Jogador'
                   return (
                     <div key={membroUid} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
-                      <span style={{ flex: 1, color: 'var(--ink-dim)' }}>{ficha?.nome || 'Ainda sem ficha'}</span>
+                      <span style={{ flex: 1 }}>
+                        <span style={{ color: 'var(--ink)' }}>{nomeConta}</span>
+                        <span style={{ color: 'var(--ink-faint)' }}> — {ficha ? ficha.nome : 'ainda sem ficha'}</span>
+                      </span>
                       <Button size="sm" variant="danger-outline" onClick={() => handleRemoverMembro(membroUid)}>Remover</Button>
                     </div>
                   )
@@ -295,6 +384,8 @@ const GerenciadorDono: React.FC<{ donoUid: string; mesaId: string }> = ({ donoUi
                   onVer={() => navigate(`/mesa/${donoUid}/${mesaId}/personagem/${p.id}`)}
                   onEditar={() => navigate(`/mesa/${donoUid}/${mesaId}/personagem/${p.id}/editar`)}
                   onRemover={() => setRemoveTarget(p)}
+                  onDesvincular={p.jogadorUid ? () => handleDesvincular(p) : undefined}
+                  onAtribuir={() => handleAbrirAtribuir(p)}
                 />
               ))}
             </div>
@@ -369,7 +460,7 @@ const GerenciadorDono: React.FC<{ donoUid: string; mesaId: string }> = ({ donoUi
 
                       <Avatar nome={p.nome} src={p.imagemUrl} size={36} />
 
-                      <div style={{ flex: 1 }}>
+                      <div style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>
                         <div style={{ fontWeight: 600, fontSize: 14 }}>{p.nome}</div>
                         <div style={{ fontSize: 11.5, color: 'var(--ink-faint)' }}>Nv. {p.nivel} · {p.classe}</div>
                       </div>
@@ -476,6 +567,30 @@ const GerenciadorDono: React.FC<{ donoUid: string; mesaId: string }> = ({ donoUi
         </div>
       </Modal>
 
+      {/* Modal de atribuir/trocar dono da ficha */}
+      <Modal open={!!atribuirTarget} onClose={() => setAtribuirTarget(null)} title={`Atribuir "${atribuirTarget?.nome}" a...`}>
+        <div style={{ fontSize: 13, color: 'var(--ink-dim)', marginBottom: 14 }}>
+          Só aparecem aqui quem já entrou na mesa pelo código de convite.
+        </div>
+        {membrosInfo.length === 0 ? (
+          <div style={{ fontSize: 13, color: 'var(--ink-faint)', marginBottom: 16 }}>
+            Ninguém entrou nessa mesa ainda — gere e compartilhe o código de convite primeiro.
+          </div>
+        ) : (
+          <Select label="Jogador" value={uidAtribuir} onChange={e => setUidAtribuir(e.target.value)} style={{ marginBottom: 16 }}>
+            <option value="">—</option>
+            {membrosInfo.map(m => <option key={m.uid} value={m.uid}>{m.nome}</option>)}
+          </Select>
+        )}
+        {erroAtribuir && <div style={{ color: '#e07a7a', fontSize: 13, marginBottom: 14 }}>{erroAtribuir}</div>}
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <Button variant="ghost" onClick={() => setAtribuirTarget(null)}>Cancelar</Button>
+          <Button disabled={!uidAtribuir || salvandoAtribuir} onClick={handleConfirmarAtribuir}>
+            {salvandoAtribuir ? 'Salvando…' : 'Atribuir'}
+          </Button>
+        </div>
+      </Modal>
+
       {toast && <Toast message={toast} visible={!!toast} />}
       <DiceRollerModal open={diceModal} onClose={() => setDiceModal(false)} />
     </div>
@@ -491,19 +606,27 @@ const GerenciadorJogador: React.FC<{ donoUid: string; mesaId: string }> = ({ don
 
   useEffect(() => {
     const load = async () => {
-      const [m, participando, res] = await Promise.all([
-        getMesa(donoUid, mesaId), getMesasParticipando(), getResumoJogadores(donoUid, mesaId),
-      ])
-      if (m) setMesa(m)
-      setResumo(res)
-      const minha = participando.find(p => p.mesaId === mesaId)
-      if (minha?.personagemId) {
-        const ficha = await getPersonagem(donoUid, mesaId, minha.personagemId)
-        if (ficha) setMinhaFicha(ficha)
+      try {
+        const [m, ficha, res] = await Promise.all([
+          getMesa(donoUid, mesaId), getMinhaFicha(donoUid, mesaId), getResumoJogadores(donoUid, mesaId),
+        ])
+        if (m) setMesa(m)
+        setResumo(res)
+        setMinhaFicha(ficha || null)
+      } catch (err) {
+        // O mestre pode ter removido esse jogador da mesa entre uma tela e outra —
+        // isso não é sessão inválida, é acesso negado de verdade (ver db/index.ts,
+        // guarded()). Volta pra lista de mesas com um aviso, sem deslogar ninguém.
+        if ((err as { code?: string })?.code === 'permission-denied') {
+          sessionStorage.setItem(ACESSO_REVOGADO_KEY, '1')
+          navigate('/jogos', { replace: true })
+          return
+        }
+        throw err
       }
     }
     load()
-  }, [donoUid, mesaId])
+  }, [donoUid, mesaId, navigate])
 
   if (!mesa) return null
 
@@ -565,7 +688,9 @@ const PersonagemCard: React.FC<{
   onVer: () => void
   onEditar: () => void
   onRemover: () => void
-}> = ({ personagem: p, inFila, onToggleFila, onVer, onEditar, onRemover }) => (
+  onDesvincular?: () => void
+  onAtribuir?: () => void
+}> = ({ personagem: p, inFila, onToggleFila, onVer, onEditar, onRemover, onDesvincular, onAtribuir }) => (
   <div
     onClick={onToggleFila}
     style={{
@@ -578,14 +703,29 @@ const PersonagemCard: React.FC<{
     }}
   >
     <Avatar nome={p.nome} src={p.imagemUrl} size={44} border={inFila ? '2px solid var(--gold)' : undefined} />
-    <div style={{ flex: 1, minWidth: 0 }}>
+    <div style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>
       <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 2 }}>{p.nome}</div>
-      <div style={{ fontSize: 11.5, color: 'var(--ink-faint)', marginBottom: 8 }}>
+      <div style={{ fontSize: 11.5, color: 'var(--ink-faint)', marginBottom: 4 }}>
         Nv. {p.nivel} · {p.raca} · {p.classe}
       </div>
+      {p.jogadorUid && (
+        <div style={{ fontSize: 11, color: 'var(--gold)', marginBottom: 6 }}>
+          Jogado por: {p.jogadorNome || 'conta vinculada'}
+        </div>
+      )}
       <div style={{ display: 'flex', gap: 10, fontSize: 12 }} onClick={e => e.stopPropagation()}>
         <span style={{ color: 'var(--ink-dim)', cursor: 'pointer' }} onClick={onVer}>Ver</span>
         <span style={{ color: 'var(--ink-dim)', cursor: 'pointer' }} onClick={onEditar}>Editar</span>
+        {onAtribuir && (
+          <span style={{ color: 'var(--ink-dim)', cursor: 'pointer' }} onClick={onAtribuir} title="Escolher ou trocar a quem essa ficha pertence">
+            Atribuir
+          </span>
+        )}
+        {onDesvincular && (
+          <span style={{ color: 'var(--ink-faint)', cursor: 'pointer' }} onClick={onDesvincular} title="Libera essa ficha pra ser escolhida de novo, sem remover a pessoa da mesa">
+            Desvincular
+          </span>
+        )}
         <span style={{ color: 'var(--ink-faint)', cursor: 'pointer' }} onClick={onRemover}>Remover</span>
       </div>
     </div>

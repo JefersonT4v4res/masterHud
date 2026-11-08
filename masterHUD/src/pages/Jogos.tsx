@@ -1,8 +1,10 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Topbar } from '../components/layout/Topbar'
-import { Button, Badge, Panel } from '../components/ui'
-import { getMesa, getMesas, getMesasParticipando } from '../db'
+import { UserMenu } from '../components/layout/UserMenu'
+import { Button, Badge, Panel, Avatar, Toast } from '../components/ui'
+import { getMesas, getMesasParticipandoValidas, updateMesa, ACESSO_REVOGADO_KEY } from '../db'
+import { useAuth } from '../context/AuthContext'
 import { auth } from '../firebase'
 import type { Mesa } from '../types'
 
@@ -22,25 +24,35 @@ const sistemaLabel: Record<string, string> = {
 
 export const Jogos: React.FC = () => {
   const navigate = useNavigate()
+  const { user, perfil } = useAuth()
+  const nomeUsuario = user?.displayName || user?.email || 'Usuário'
   const [mesas, setMesas] = useState<MesaListada[]>([])
   const [filtro, setFiltro] = useState<Filtro>('todas')
   const [busca, setBusca] = useState('')
+  const [aviso, setAviso] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    const meuUid = auth.currentUser!.uid
+    const [proprias, participando] = await Promise.all([getMesas(), getMesasParticipandoValidas()])
+    const propriasListadas: MesaListada[] = proprias.map(m => ({ ...m, donoUid: meuUid, souDono: true }))
+    const participandoListadas: MesaListada[] = participando.map(m => ({ ...m, souDono: false }))
+    setMesas([...propriasListadas, ...participandoListadas])
+  }, [])
+
+  useEffect(() => { load() }, [load])
 
   useEffect(() => {
-    const meuUid = auth.currentUser!.uid
-    const load = async () => {
-      const [proprias, participando] = await Promise.all([getMesas(), getMesasParticipando()])
-      const propriasListadas: MesaListada[] = proprias.map(m => ({ ...m, donoUid: meuUid, souDono: true }))
-      const participandoListadas = (await Promise.all(
-        participando.map(async p => {
-          const m = await getMesa(p.donoUid, p.mesaId)
-          return m ? { ...m, donoUid: p.donoUid, souDono: false } as MesaListada : null
-        })
-      )).filter((m): m is MesaListada => m !== null)
-      setMesas([...propriasListadas, ...participandoListadas])
+    if (sessionStorage.getItem(ACESSO_REVOGADO_KEY)) {
+      sessionStorage.removeItem(ACESSO_REVOGADO_KEY)
+      setAviso('Você perdeu o acesso a essa mesa.')
+      setTimeout(() => setAviso(null), 3000)
     }
-    load()
   }, [])
+
+  const handleReativar = async (mesa: MesaListada) => {
+    await updateMesa(mesa.donoUid, mesa.id!, { status: 'ativa' })
+    load()
+  }
 
   const filtroStatusMap: Record<Filtro, Mesa['status'] | null> = {
     todas: null,
@@ -60,10 +72,15 @@ export const Jogos: React.FC = () => {
     <div style={{ minHeight: '100vh' }}>
       <Topbar
         crumbs={[{ label: 'Início', to: '/' }, { label: 'Jogos' }]}
-        right={<Button size="sm" onClick={() => navigate('/mesa/nova')}>+ Criar nova mesa</Button>}
+        right={
+          <>
+            <Button size="sm" onClick={() => navigate('/mesa/nova')}>+ Criar nova mesa</Button>
+            <UserMenu />
+          </>
+        }
       />
 
-      <div style={{ maxWidth: 1200, margin: '0 auto', padding: '28px 32px', display: 'grid', gridTemplateColumns: '1fr 300px', gap: 22 }}>
+      <div className="mh-page-grid" style={{ maxWidth: 1200, margin: '0 auto', padding: '28px 32px' }}>
         <div>
           <div style={{ fontFamily: 'var(--font-display)', fontSize: 24, fontWeight: 600, marginBottom: 20 }}>
             Os meus jogos
@@ -103,11 +120,13 @@ export const Jogos: React.FC = () => {
                 opacity: mesa.status === 'pausada' ? 0.75 : 1, cursor: 'default',
               }}>
                 <div style={{
-                  width: 90, height: 90, borderRadius: 10, flexShrink: 0,
+                  width: 90, height: 90, borderRadius: 10, flexShrink: 0, overflow: 'hidden',
                   background: 'var(--gold-dim)', display: 'grid', placeItems: 'center',
                   fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--bg-deep)', fontSize: 28,
                   filter: mesa.status === 'pausada' ? 'grayscale(0.5)' : 'none',
-                }}>{mesa.nome[0]}</div>
+                }}>
+                  {mesa.imagemUrl ? <img src={mesa.imagemUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : mesa.nome[0]}
+                </div>
 
                 <div style={{ flex: 1 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
@@ -127,21 +146,12 @@ export const Jogos: React.FC = () => {
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {mesa.status === 'ativa' ? (
-                    <>
-                      {mesa.souDono && <Button size="sm" onClick={() => navigate(`/mesa/${mesa.donoUid}/${mesa.id}/combate`)}>Iniciar jogo</Button>}
-                      <Button size="sm" variant="ghost" onClick={() => navigate(`/mesa/${mesa.donoUid}/${mesa.id}`)}>
-                        {mesa.souDono ? 'Gerenciar mesa' : 'Ver mesa'}
-                      </Button>
-                    </>
-                  ) : mesa.status === 'pausada' ? (
-                    <>
-                      {mesa.souDono && <Button size="sm" variant="secondary">Reativar mesa</Button>}
-                      <Button size="sm" variant="ghost" onClick={() => navigate(`/mesa/${mesa.donoUid}/${mesa.id}`)}>Gerenciar mesa</Button>
-                    </>
-                  ) : (
-                    <Button size="sm" variant="ghost" onClick={() => navigate(`/mesa/${mesa.donoUid}/${mesa.id}`)}>Ver mesa</Button>
+                  {mesa.status === 'pausada' && mesa.souDono && (
+                    <Button size="sm" variant="secondary" onClick={() => handleReativar(mesa)}>Reativar mesa</Button>
                   )}
+                  <Button size="sm" variant={mesa.status === 'ativa' ? 'ghost' : undefined} onClick={() => navigate(`/mesa/${mesa.donoUid}/${mesa.id}`)}>
+                    {mesa.souDono ? 'Gerenciar mesa' : 'Ver mesa'}
+                  </Button>
                 </div>
               </div>
             ))}
@@ -163,20 +173,23 @@ export const Jogos: React.FC = () => {
 
         {/* Sidebar */}
         <Panel style={{ textAlign: 'center', alignSelf: 'start' }}>
-          <div style={{
-            width: 80, height: 80, borderRadius: '50%', margin: '0 auto 14px',
-            background: 'var(--gold-dim)', display: 'grid', placeItems: 'center',
-            border: '2px solid var(--gold)', fontFamily: 'var(--font-display)',
-            fontWeight: 700, color: 'var(--bg-deep)', fontSize: 28,
-          }}>M</div>
-          <div style={{ fontFamily: 'var(--font-display)', fontSize: 19, marginBottom: 18 }}>Mestre</div>
-          <div style={{ height: 1, background: 'var(--line)', marginBottom: 18 }} />
+          <div onClick={() => navigate('/perfil')} style={{ cursor: 'pointer' }}>
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 14 }}>
+              <Avatar nome={nomeUsuario} src={perfil?.fotoUrl} size={80} border="2px solid var(--gold)" />
+            </div>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 19, fontWeight: 600, marginBottom: 6 }}>{nomeUsuario}</div>
+            {perfil?.frase && (
+              <div style={{ fontSize: 12, color: 'var(--ink-dim)', fontStyle: 'italic', marginBottom: 6 }}>"{perfil.frase}"</div>
+            )}
+          </div>
+          <div style={{ height: 1, background: 'var(--line)', margin: '14px 0 18px' }} />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <Button style={{ width: '100%' }} onClick={() => navigate('/mesa/nova')}>+ Criar nova mesa</Button>
             <Button variant="secondary" style={{ width: '100%' }} onClick={() => navigate('/mesa/entrar')}>Entrar numa mesa</Button>
           </div>
         </Panel>
       </div>
+      {aviso && <Toast message={aviso} visible={!!aviso} />}
     </div>
   )
 }

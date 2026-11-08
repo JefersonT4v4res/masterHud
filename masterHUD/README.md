@@ -60,6 +60,7 @@ usuarios/{uid}/mesasParticipando/{mesaId}                 índice pessoal: mesas
 usuarios/{uid}/mesas/{mesaId}                              Mesa (com `molde` embutido, `membros[]`, `conviteCodigo`)
 usuarios/{uid}/mesas/{mesaId}/personagens/{personagemId}   Personagem (jogador/npc/monstro, jogador tem `jogadorUid`)
 usuarios/{uid}/mesas/{mesaId}/resumo/jogadores             Projeção só com HP/nome/foto dos personagens tipo jogador (nunca NPC) — o que um jogador comum pode ler do resto do grupo
+usuarios/{uid}/mesas/{mesaId}/membrosInfo/{memberUid}      { nome } autodeclarado por cada jogador ao entrar — só o mestre lê (precisa pra montar o dropdown de atribuir ficha, já que não pode ler o perfil de outra conta)
 convites/{codigo}                                          { donoUid, mesaId, mesaNome, sistema } — só leitura direta por código (nunca listagem, pra não dar pra enumerar convite de mesa de ninguém)
 ```
 
@@ -87,13 +88,14 @@ A tela `/stream` (overlay pra compartilhar com jogadores sem acesso à ferrament
 - **Fichas privadas** — jogador vê a própria ficha completa e um resumo (nome/HP/foto) dos outros jogadores, mas nunca a ficha de NPCs/monstros nem a ficha completa de outro jogador; isso é garantido pelas regras do Firestore, não só por esconder na UI
 - Visão reduzida do Gerenciador pra quem entra como jogador (sem Zona de risco, NPCs ou gerenciador de combate); `Combate` continua exclusivo do mestre
 - Editar nome/descrição da mesa depois de criada (`Gerenciador → Informações da mesa`) — o sistema (`dnd5e`/`tormenta20`/`custom`) não pode ser trocado depois, porque muda os atributos que as fichas já existentes esperam
+- Mestre vê quem é dono de cada ficha ("Jogado por: fulano", inclusive na própria ficha) e pode atribuir/trocar o dono de uma ficha direto por um dropdown com quem já entrou na mesa — com checagem pra não deixar o mesmo jogador com duas fichas ao mesmo tempo
 - Upload de imagem (perfil e fichas) sempre passa por `src/utils/imagem.ts`, que redimensiona pra um quadrado pequeno (160–200px) antes de virar base64 — documentos do Firestore têm limite de 1MB, e uma foto de câmera em tamanho original estoura isso fácil
 
 ## Segurança
 
 - **Senha**: a regra de complexidade (12+ caracteres, maiúscula/minúscula/número/especial) é validada no cliente antes de chamar o Firebase. Recomendado reforçar também no servidor em Firebase Console → Authentication → Settings → Password policy, marcando "Enforce" e os mesmos requisitos (exceto a checagem de sequências como `123456`/`qwerty`, que o Firebase não suporta nativamente — fica só no cliente).
 - **Verificação de email**: todo cadastro novo recebe automaticamente um email de verificação (`sendEmailVerification`) e fica bloqueado por `ProtectedRoute`/`VerifyEmailGate` até confirmar. **Contas criadas antes dessa mudança não têm o email verificado** e vão ver essa tela na próxima vez que acessarem — inclusive contas de teste já existentes.
-- **Sessão inválida**: toda função de `src/db/index.ts` é envolvida por um `guarded()` — se o Firestore recusar uma chamada por `permission-denied`/`unauthenticated` (token expirado, revogado, ou conta deslogada em outro lugar), a sessão é encerrada automaticamente e a tela de login mostra "Sua sessão expirou". Entre abas do mesmo navegador, isso já acontece de graça via `onAuthStateChanged` do Firebase — sem precisar de nada extra. **Nota**: isso também dispara se o Firestore negar um acesso legítimo (ex: jogador tentando abrir a URL de uma ficha de NPC) — a segurança está correta, mas a experiência nesse caso específico é um logout abrupto em vez de uma mensagem de "sem acesso".
+- **Sessão inválida**: toda função de `src/db/index.ts` é envolvida por um `guarded()` — se o Firestore recusar uma chamada por `unauthenticated` (token revogado, ou conta deslogada em outro lugar), a sessão é encerrada automaticamente e a tela de login mostra "Sua sessão expirou". Entre abas do mesmo navegador, isso já acontece de graça via `onAuthStateChanged` do Firebase — sem precisar de nada extra. **`permission-denied` não força mais logout** (decisão revertida depois de observar na prática que esse código quase nunca significa sessão inválida — é o resultado normal de uma regra negando algo que faz sentido negar, como um jogador removido da mesa ou uma ficha desvinculada entre uma tela e outra; um token realmente inválido aparece como `unauthenticated`, não `permission-denied`). Em vez disso, cada tela que lê uma mesa/ficha específica de quem não é dono (`GerenciadorJogador`, `FichaPersonagem`, `PersonagemForm`) captura esse erro localmente e redireciona pra `/jogos` com o aviso "Você perdeu o acesso a essa mesa" (`ACESSO_REVOGADO_KEY`), sem mexer na sessão.
 - **Regras do Firestore** (`masterHUD/firestore.rules`, versionado no repo e colado manualmente no Firebase Console) — cobrem mesas, personagens, o resumo do grupo e os convites. Um ponto que vale registrar pra quem for alterar essas regras: `convites/{codigo}` libera `get` (buscar um código específico) mas bloqueia `list` por completo — sem isso, qualquer conta logada poderia listar o convite de toda mesa de todo mestre. Além disso, qualquer `getDocs`/query sem filtro numa coleção que mistura documentos com permissões diferentes (como `personagens`, que tem NPC e jogador juntos) é **negada por completo** pelo Firestore se puder teoricamente retornar algo que o usuário não pode ler — por isso consultas feitas por quem não é dono da mesa usam `where` explícito (ex: `getSlotsLivres`) em vez do `getPersonagens` genérico.
 
 ## O que falta
@@ -106,13 +108,14 @@ A tela `/stream` (overlay pra compartilhar com jogadores sem acesso à ferrament
 - O toggle "Modo mestre/audiência" do Combate hoje só esconde HP de NPC — poderia esconder também descrição de ataques, e/ou ganhar um equivalente no Gerenciador
 
 ## Considerações e ideias
-- Logout timer ("Tem alguém aí?") — baixa prioridade; numa sessão de RPG o mestre passa longos trechos sem clicar em nada (todo mundo interpretando), então um timeout curto atrapalharia o próprio uso real da ferramenta. Se for feito, precisa de um tempo bem generoso (1h+).
+
 - Loja de itens que o mestre pode criar e disponibilizar para os jogadores comprarem - O jogador vai na sessão "loja" e lá ele pode comprar o item com o dinheiro que ele tem na ficha do personagem. Aqui temos duas visões o do Mestre e o do jogador. O mestre é capaz de adicionar, editar e remover itens, o jogador só consegue comprar ou modificar a quantidade que quer comprar daquele item - mestre também decide quantas versões daquele item ficam disponíveis para evitar que itens raros seram comprados aos montes
 * OBS.: Adicionar um campo "Dinheiro" na ficha de cada personagem — provável candidato a reaproveitar o mesmo padrão flexível do `molde` (atributos customizáveis por mesa), já que o tipo de moeda varia por sistema (ouro/prata/bronze, etc.)
 * Possibilidade de jogar uma informação direto na tela do jogador? Pensar sobre. Depende de trocar leitura "puxar uma vez" por listener em tempo real (`onSnapshot`) — a mesma mudança técnica do item "Combate ao vivo" em "O que falta".
 - Enciclopédia de Raças, Classes, Origens, Divindades, Magias e Poderes — conteúdo próprio (não importar material oficial de sistemas como D&D sem checar licença/SRD antes)
 - Bestiário + "salvar NPCs/criaturas pra reaproveitar entre campanhas" — são a mesma feature na prática: `Personagem` já tem `tipo: 'monstro'`, então isso vira uma biblioteca pessoal de personagens não presos a uma mesa específica, e "importar" é só copiar o registro pra dentro de uma mesa
 - Campo "Nickname" separado de "Nome" no perfil — hoje só existe `nome` (o mesmo que aparece editável em `/perfil` e é usado como saudação); avaliar se faz sentido ter os dois ou se um só já resolve
+- Cortar/zoom da foto - crop + zoom interativo 
 
 ## Próxima prioridade
 

@@ -7,7 +7,8 @@ import { getMesa, getPersonagens, updatePersonagem } from '../db'
 import { parseDiceExpression, executeRoll, cryptoRollSingle, type RollResult } from '../hooks/useDiceRoller'
 import { auth } from '../firebase'
 import type { Personagem, Ataque } from '../types'
-import { calcAtributo } from '../types'
+import { calcAtributo, imagemAtual } from '../types'
+import { aplicarXp } from '../utils/xp'
 
 interface FilaItem { personagemId: string; iniciativa: number }
 interface Participante { personagem: Personagem; iniciativa: number }
@@ -134,17 +135,22 @@ export const Combate: React.FC = () => {
   }, [selecionado, dicePublic])
 
   const distribuirXp = async () => {
+    const subiramNivel: string[] = []
     await Promise.all(
       Object.entries(xpValues).map(async ([pid, xp]) => {
         if (!xp) return
         const p = participantes.find(pt => pt.personagem.id === pid)?.personagem
         if (!p) return
-        await updatePersonagem(donoUid, mesaId, pid, { xp: p.xp + xp })
+        const resultado = aplicarXp(p, xp)
+        if (resultado.subiuNivel) subiramNivel.push(p.nome)
+        await updatePersonagem(donoUid, mesaId, pid, {
+          xp: resultado.xp, nivel: resultado.nivel, xpProximoNivel: resultado.xpProximoNivel,
+        })
       })
     )
-    showToast('XP distribuído!')
+    showToast(subiramNivel.length > 0 ? `🎉 ${subiramNivel.join(', ')} subiu de nível!` : 'XP distribuído!')
     setXpModal(false)
-    navigate(`/mesa/${donoUid}/${mesaId}`)
+    setTimeout(() => navigate(`/mesa/${donoUid}/${mesaId}`), 1200)
   }
 
   const showToast = (msg: string) => {
@@ -256,7 +262,7 @@ export const Combate: React.FC = () => {
                     boxShadow: '0 0 0 3px var(--bg-panel)',
                   }}>{p.iniciativa}</div>
                 )}
-                <Avatar nome={p.personagem.nome} src={p.personagem.imagemUrl} size={50} />
+                <Avatar nome={p.personagem.nome} src={imagemAtual(p.personagem)} size={50} />
                 <div style={{ fontFamily: 'var(--font-display)', fontSize: 12.5, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 6 }}>
                   {p.personagem.nome}
                 </div>
@@ -306,7 +312,7 @@ export const Combate: React.FC = () => {
           <div style={{ background: 'var(--bg-panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 20 }}>
             <div style={{ fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', color: 'var(--gold)', marginBottom: 14 }}>Personagem ativo</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-              <Avatar nome={selecionado.personagem.nome} src={selecionado.personagem.imagemUrl} size={52} border="2px solid var(--gold)" />
+              <Avatar nome={selecionado.personagem.nome} src={imagemAtual(selecionado.personagem)} size={52} border="2px solid var(--gold)" />
               <div>
                 <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 600 }}>{selecionado.personagem.nome}</div>
                 {/* Raça/classe de NPC fica borrada em audiência */}
@@ -418,14 +424,18 @@ export const Combate: React.FC = () => {
                     onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--line)')}
                   >
                     <span>{atr.nome}</span>
-                    {/* Valores numéricos do NPC ficam borrados em audiência */}
+                    {/* Valores numéricos do NPC ficam borrados em audiência.
+                        `blurStyle` sempre devolve `display: 'inline-block'` — precisa
+                        vir ANTES aqui, senão apaga o `display: 'flex'` que mantém o
+                        "(base+bônus)" separado do total (exatamente o bug do print:
+                        sem flex, o `gap` não faz nada e os dois span ficam colados). */}
                     <span style={{
-                      display: 'flex', alignItems: 'center', gap: 5,
                       ...blurStyle(!isNpcAtivo),
+                      display: 'flex', alignItems: 'center', gap: 10,
                     }}>
                       {bonus !== 0 && (
-                        <span style={{ fontSize: 10, color: bonus > 0 ? 'var(--moss)' : 'var(--blood)' }}>
-                          base {atr.valor} {bonus > 0 ? '+' : ''}{bonus}
+                        <span style={{ fontSize: 10, color: bonus > 0 ? 'var(--moss)' : 'var(--blood)', whiteSpace: 'nowrap' }}>
+                          ({atr.valor}{bonus > 0 ? '+' : ''}{bonus})
                         </span>
                       )}
                       <span style={{
@@ -555,7 +565,7 @@ export const Combate: React.FC = () => {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {participantes.filter(p => p.personagem.tipo === 'jogador').map(p => (
             <div key={p.personagem.id} style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'var(--bg-card)', border: '1px solid var(--line)', borderRadius: 9, padding: '12px 14px' }}>
-              <Avatar nome={p.personagem.nome} src={p.personagem.imagemUrl} size={40} />
+              <Avatar nome={p.personagem.nome} src={imagemAtual(p.personagem)} size={40} />
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>{p.personagem.nome}</div>
                 <HpBar atual={p.personagem.hpAtual} maximo={p.personagem.hpMaximo} />
@@ -589,7 +599,7 @@ export const Combate: React.FC = () => {
         </div>
         {jogadores.map(p => (
           <div key={p.personagem.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', borderBottom: '1px solid var(--line)' }}>
-            <Avatar nome={p.personagem.nome} src={p.personagem.imagemUrl} size={38} />
+            <Avatar nome={p.personagem.nome} src={imagemAtual(p.personagem)} size={38} />
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 600, fontSize: 14 }}>{p.personagem.nome}</div>
               <div style={{ fontSize: 11.5, color: 'var(--ink-faint)' }}>Nível {p.personagem.nivel} · {p.personagem.xp} XP</div>
