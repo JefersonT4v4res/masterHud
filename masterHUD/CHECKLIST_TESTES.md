@@ -119,13 +119,30 @@ Testar colando os valores abaixo em campos de texto livre (nome de personagem, d
 
 ## Bugs encontrados
 
+Todos os 4 abaixo foram corrigidos nesta rodada — peço pra reconferir no próximo teste:
+
+- ~~lista dos sistemas não aparecendo, mostrando apenas "D&D 5ª edição"~~ — o dropdown "Qual sistema?" em Criar mesa era decorativo (`onChange` vazio, `value` travado); agora funciona e seleciona D&D 5e/Tormenta20 de verdade
+- ~~Xp aceitando valor negativo~~ — XP, Nível, HP e bônus de atributo agora têm limites (não aceitam mais negativo nem número absurdo tipo "Nível -5e+159")
+- ~~Tela criação de ficha: cliques sem querer fora dos modais fecha o modal e perde tudo~~ — corrigido no componente de modal compartilhado (agora só fecha se o clique começar E terminar fora dele, não quando é só o fim de uma seleção de texto)
+- ~~Editar perfil: nome bugou e virou o email~~ — campo "Nome" (perfil e cadastro) agora tem limite de 60 caracteres, que era o que faltava pra evitar a escrita falhar
 
 ---
 
 ## Ajustes necessários
 
+Os itens já resolvidos nesta rodada (incluindo os 3 que você confirmou que eram comportamento esperado, não bug) saíram da lista.
 
+**Implementados nesta rodada, peço pra reconferir:**
+- ~~A tela de Criar mesa tem de ter a opção de adicionar imagem~~ — já dá pra adicionar na criação, não só depois
+- ~~Dados rápidos poderiam somar antes de rolar~~ — clicar em +d4/+d6/etc. agora acumula na expressão (soma o mesmo tipo de dado); só rola de fato no botão "Rolar" ou Enter
+- ~~Não temos a opção de encerrar uma mesa~~ — `Zona de risco → Encerrar mesa`; aparece na aba "Encerradas" de `/jogos` com botão "Reabrir mesa"
+- ~~Botões na tela de gerenciar tem de ser mais claros que são botões~~ — os cards de personagem agora têm um botão "+ Fila"/"✓ Na fila" visível em vez de depender do clique no card inteiro (que era a causa de "descobrir sem querer"), e a fileira de ações embaixo não quebra mais palavra por palavra
 
-
+**UX, ainda não mexido:**
+- Botão de salvar alterações está muito escondido (em qual tela além do perfil? já ajustei o perfil — Cancelar/Salvar ficaram lado a lado)
+- Tipos de dados tem de ser fixos e selecionáveis, deixar campo aberto pra digitação gera erro ou bugs — isso é sobre o mesmo dropdown de sistema que corrigi, ou outro campo (tipo de dano do ataque, por exemplo)?
+- Após alterações feitas, se a pessoa esquecer de salvar, avisar antes de sair da página
+- Tela combate: campos redundantes de rolagem pública; opção de ocultar rolagens sem necessidade no container de dados
+- Tela de gerenciamento de mesa como um todo precisa de uma repensada maior de UX (você mencionou que "pode ser melhorada em muito") — isso é um projeto à parte, maior que um ajuste pontual; vale conversar separado sobre o que incomoda além do que já foi listado aqui
 
 ## Dúvidas

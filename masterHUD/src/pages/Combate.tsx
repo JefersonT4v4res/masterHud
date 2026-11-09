@@ -38,7 +38,7 @@ export const Combate: React.FC = () => {
   const [diceModal, setDiceModal]     = useState(false)
   const [fichaModal, setFichaModal]   = useState(false)
   const [rollHistory, setRollHistory] = useState<RollResult[]>([])
-  const [diceExpr, setDiceExpr]       = useState('1d20')
+  const [diceExpr, setDiceExpr]       = useState('')
   const [dicePublic, setDicePublic]   = useState(true)
   const [audiencia, setAudiencia]     = useState(false)  // false = modo mestre, true = modo stream
   const trackRef                      = useRef<HTMLDivElement>(null)
@@ -110,6 +110,22 @@ export const Combate: React.FC = () => {
     if (!parsed) return
     const result = executeRoll(parsed, rolledBy, isPublic, bonusLabel)
     setRollHistory(prev => [result, ...prev.slice(0, 29)])
+  }, [])
+
+  // Clicar num dado rápido só acumula na expressão (soma ao termo do mesmo tipo
+  // de dado, se já tiver um) — só rola de fato quando clica em "Rolar" ou Enter.
+  const addDado = useCallback((dado: string) => {
+    setDiceExpr(prev => {
+      const termos = prev.split('+').map(t => t.trim()).filter(Boolean)
+      const idx = termos.findIndex(t => new RegExp(`^\\d+${dado}$`).test(t))
+      if (idx >= 0) {
+        const qtd = parseInt(termos[idx].slice(0, -dado.length), 10) + 1
+        termos[idx] = `${qtd}${dado}`
+      } else {
+        termos.push(`1${dado}`)
+      }
+      return termos.join('+')
+    })
   }, [])
 
   const rolarAtaque = useCallback((ataque: Ataque) => {
@@ -459,22 +475,26 @@ export const Combate: React.FC = () => {
               <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 10 }}>
                 {['d4','d6','d8','d10','d12','d20'].map(d => (
                   <button key={d}
-                    onClick={() => rolarDado(`1${d}`, dicePublic, selecionado.personagem.nome)}
+                    onClick={() => addDado(d)}
+                    title={`Adiciona ${d} à rolagem — clique em "Rolar" quando terminar de somar`}
                     style={{ background: 'var(--bg-card)', border: '1px solid var(--line)', color: 'var(--ink)', fontFamily: 'var(--font-display)', fontSize: 12, padding: '6px 10px', borderRadius: 7, cursor: 'pointer' }}
                     onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--gold-dim)')}
                     onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--line)')}
-                  >{d}</button>
+                  >+{d}</button>
                 ))}
               </div>
               <div style={{ display: 'flex', gap: 6 }}>
                 <input
                   value={diceExpr}
                   onChange={e => setDiceExpr(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && rolarDado(diceExpr, dicePublic, selecionado.personagem.nome)}
-                  placeholder="2d6+3"
+                  onKeyDown={e => { if (e.key === 'Enter' && diceExpr.trim()) { rolarDado(diceExpr, dicePublic, selecionado.personagem.nome); setDiceExpr('') } }}
+                  placeholder="Ex: 2d6+3 (ou clique nos dados acima)"
                   style={{ flex: 1, background: 'var(--bg-card)', border: '1px solid var(--line)', borderRadius: 7, color: 'var(--ink)', fontFamily: 'var(--font-display)', fontSize: 14, padding: '8px 10px', outline: 'none', letterSpacing: 1 }}
                 />
-                <Button size="sm" onClick={() => rolarDado(diceExpr, dicePublic, selecionado.personagem.nome)}>⬡</Button>
+                {diceExpr.trim() && (
+                  <Button size="sm" variant="ghost" title="Limpar" onClick={() => setDiceExpr('')}>✕</Button>
+                )}
+                <Button size="sm" disabled={!diceExpr.trim()} onClick={() => { rolarDado(diceExpr, dicePublic, selecionado.personagem.nome); setDiceExpr('') }}>Rolar ⬡</Button>
               </div>
               {/* Toggle público/privado */}
               <div
@@ -587,11 +607,12 @@ export const Combate: React.FC = () => {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--bg-card)', border: '1px dashed var(--line)', borderRadius: 9, padding: '10px 12px', marginBottom: 16 }}>
           <span style={{ fontSize: 12.5, color: 'var(--ink-dim)', flexShrink: 0 }}>Aplicar a todos:</span>
-          <input type="number" placeholder="50" id="bulk-xp"
+          <input type="number" placeholder="50" id="bulk-xp" min={0} max={999999}
             style={{ width: 70, background: 'var(--bg-panel)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--gold)', textAlign: 'center', fontFamily: 'var(--font-display)', fontWeight: 600, padding: 6, outline: 'none' }}
           />
           <Button size="sm" variant="secondary" onClick={() => {
-            const val = Number((document.getElementById('bulk-xp') as HTMLInputElement).value)
+            const bruto = Number((document.getElementById('bulk-xp') as HTMLInputElement).value)
+            const val = Number.isFinite(bruto) ? Math.max(0, Math.min(999999, bruto)) : 0
             const next: Record<string, number> = {}
             jogadores.forEach(p => { if (p.personagem.id) next[p.personagem.id] = val })
             setXpValues(next)
@@ -605,9 +626,12 @@ export const Combate: React.FC = () => {
               <div style={{ fontSize: 11.5, color: 'var(--ink-faint)' }}>Nível {p.personagem.nivel} · {p.personagem.xp} XP</div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-              <input type="number"
+              <input type="number" min={0} max={999999}
                 value={xpValues[p.personagem.id!] ?? 0}
-                onChange={e => setXpValues(prev => ({ ...prev, [p.personagem.id!]: Number(e.target.value) }))}
+                onChange={e => {
+                  const valor = Number(e.target.value)
+                  setXpValues(prev => ({ ...prev, [p.personagem.id!]: Number.isFinite(valor) ? Math.max(0, Math.min(999999, valor)) : 0 }))
+                }}
                 style={{ width: 70, background: 'var(--bg-card)', border: '1px solid var(--line)', borderRadius: 7, color: 'var(--ink)', textAlign: 'center', fontFamily: 'var(--font-display)', fontSize: 14, padding: '8px 4px', outline: 'none' }}
               />
               <span style={{ fontSize: 11.5, color: 'var(--ink-faint)' }}>XP</span>

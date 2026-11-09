@@ -263,10 +263,14 @@ interface ModalProps {
 }
 
 export const Modal: React.FC<ModalProps> = ({ open, onClose, title, children, width = 440 }) => {
+  const mouseDownOnBackdrop = React.useRef(false)
   if (!open) return null
   return (
     <div
-      onClick={onClose}
+      onMouseDown={e => { mouseDownOnBackdrop.current = e.target === e.currentTarget }}
+      onClick={e => {
+        if (e.target === e.currentTarget && mouseDownOnBackdrop.current) onClose()
+      }}
       style={{
         position: 'fixed', inset: 0,
         background: 'rgba(10,12,18,0.75)',

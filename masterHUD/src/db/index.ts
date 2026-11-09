@@ -233,6 +233,11 @@ export const getMembrosInfo = guarded(async (donoUid: string, mesaId: string): P
 export const reatribuirPersonagem = guarded(async (
   donoUid: string, mesaId: string, personagemId: string, novoUid: string, novoNome: string
 ): Promise<void> => {
+  const mesaSnap = await getDoc(mesaDoc(donoUid, mesaId))
+  const membros = (mesaSnap.data() as Mesa | undefined)?.membros || []
+  if (!membros.includes(novoUid)) {
+    throw new Error('Esse jogador não está mais na mesa — remova ou peça pra ele entrar de novo pelo convite antes de atribuir.')
+  }
   const q = query(personagensCol(donoUid, mesaId), where('jogadorUid', '==', novoUid))
   const snap = await getDocs(q)
   const jaTemOutra = snap.docs.some(d => d.id !== personagemId)

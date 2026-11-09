@@ -3,13 +3,14 @@ import { useNavigate } from 'react-router-dom'
 import { updateProfile } from 'firebase/auth'
 import { doc, updateDoc } from 'firebase/firestore'
 import { Topbar } from '../../components/layout/Topbar'
+import { UserMenu } from '../../components/layout/UserMenu'
 import { Button, Input, Textarea, Panel, PanelTitle, Avatar, Toast, Modal } from '../../components/ui'
 import { useAuth } from '../../context/AuthContext'
 import { auth, db } from '../../firebase'
 import { resizeImageToBase64 } from '../../utils/imagem'
 
 export const Perfil: React.FC = () => {
-  const { user, perfil, logout, refreshUser, refreshPerfil } = useAuth()
+  const { user, perfil, refreshUser, refreshPerfil } = useAuth()
   const navigate = useNavigate()
   const fotoInputRef = useRef<HTMLInputElement>(null)
 
@@ -19,7 +20,7 @@ export const Perfil: React.FC = () => {
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [toast, setToast] = useState(false)
-  const [confirmSair, setConfirmSair] = useState(false)
+  const [confirmRemoverFoto, setConfirmRemoverFoto] = useState(false)
 
   useEffect(() => {
     if (perfil?.frase) setFrase(perfil.frase)
@@ -45,6 +46,7 @@ export const Perfil: React.FC = () => {
     if (!auth.currentUser) return
     await updateDoc(doc(db, 'usuarios', auth.currentUser.uid), { fotoUrl: '' })
     await refreshPerfil()
+    setConfirmRemoverFoto(false)
   }
 
   const handleSalvar = async (e: React.FormEvent) => {
@@ -66,14 +68,9 @@ export const Perfil: React.FC = () => {
     }
   }
 
-  const handleLogout = async () => {
-    await logout()
-    navigate('/login')
-  }
-
   return (
     <div style={{ minHeight: '100vh' }}>
-      <Topbar crumbs={[{ label: 'Início', to: '/' }, { label: 'Perfil' }]} />
+      <Topbar crumbs={[{ label: 'Início', to: '/' }, { label: 'Perfil' }]} right={<UserMenu />} />
 
       <div style={{ maxWidth: 560, margin: '0 auto', padding: '32px' }}>
         <Panel style={{ textAlign: 'center', marginBottom: 20 }}>
@@ -95,7 +92,7 @@ export const Perfil: React.FC = () => {
             {perfil?.fotoUrl && (
               <button
                 type="button"
-                onClick={e => { e.stopPropagation(); handleRemoverFoto() }}
+                onClick={e => { e.stopPropagation(); setConfirmRemoverFoto(true) }}
                 title="Remover foto"
                 style={{
                   position: 'absolute', top: -4, right: -4, width: 24, height: 24, borderRadius: '50%',
@@ -121,6 +118,7 @@ export const Perfil: React.FC = () => {
               value={nome}
               onChange={(e) => setNome(e.target.value)}
               required
+              maxLength={60}
             />
             <Textarea
               label="Frase"
@@ -133,8 +131,8 @@ export const Perfil: React.FC = () => {
             <Input label="Email" value={user?.email || ''} disabled />
             {erro && <div style={{ color: '#e07a7a', fontSize: 13 }}>{erro}</div>}
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginTop: 6 }}>
-              <Button variant="danger-outline" type="button" onClick={() => setConfirmSair(true)}>
-                Sair
+              <Button variant="ghost" type="button" onClick={() => navigate('/')}>
+                Cancelar
               </Button>
               <Button type="submit" disabled={salvando}>
                 {salvando ? 'Salvando…' : 'Salvar alterações'}
@@ -144,13 +142,13 @@ export const Perfil: React.FC = () => {
         </Panel>
       </div>
 
-      <Modal open={confirmSair} onClose={() => setConfirmSair(false)} title="Sair da conta?" width={400}>
+      <Modal open={confirmRemoverFoto} onClose={() => setConfirmRemoverFoto(false)} title="Remover foto de perfil?" width={400}>
         <div style={{ fontSize: 13.5, color: 'var(--ink-dim)', marginBottom: 20 }}>
-          Você será desconectado e voltará pra tela de login.
+          Sua foto será removida e o avatar volta a mostrar suas iniciais.
         </div>
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <Button variant="ghost" onClick={() => setConfirmSair(false)}>Cancelar</Button>
-          <Button variant="danger" onClick={handleLogout}>Sair</Button>
+          <Button variant="ghost" onClick={() => setConfirmRemoverFoto(false)}>Cancelar</Button>
+          <Button variant="danger" onClick={handleRemoverFoto}>Remover</Button>
         </div>
       </Modal>
 

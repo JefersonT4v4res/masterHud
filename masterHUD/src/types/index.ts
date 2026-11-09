@@ -7,6 +7,7 @@ export interface Mesa {
   sistema: SystemType
   status: 'ativa' | 'pausada' | 'encerrada'
   criadaEm: string
+  encerradaEm?: string | null
   imagemUrl?: string
   molde: MoldeMesa
   membros: string[]

@@ -129,6 +129,8 @@ export const PersonagemForm: React.FC = () => {
   const [ataqueModal, setAtaqueModal]   = useState(false)
   const [editandoAtaque, setEditandoAtaque] = useState<Ataque | null>(null)
   const [novoItem, setNovoItem]         = useState('')
+  const [editandoItemIdx, setEditandoItemIdx] = useState<number | null>(null)
+  const [itemEditValor, setItemEditValor] = useState('')
   const [novoBonus, setNovoBonus]       = useState({ atributo: '', valor: 0, origem: '' })
 
   const load = useCallback(async () => {
@@ -289,6 +291,13 @@ export const PersonagemForm: React.FC = () => {
     update('inventario', inv)
   }
 
+  const editItem = (idx: number, valor: string) => {
+    if (!form || !valor.trim()) return
+    const inv = [...((form as any).inventario || [])]
+    inv[idx] = valor.trim()
+    update('inventario', inv)
+  }
+
   if (!form) return null
 
   const atrs = molde?.atributos || ['Força', 'Destreza', 'Constituição', 'Inteligência', 'Sabedoria', 'Carisma']
@@ -375,11 +384,14 @@ export const PersonagemForm: React.FC = () => {
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <Input label="Nome *" value={form.nome} onChange={e => update('nome', e.target.value)} placeholder="Nome do personagem" />
-                <Input label="Raça" value={form.raca} onChange={e => update('raca', e.target.value)} placeholder="Ex: Humano, Elfo..." />
-                <Input label="Classe" value={form.classe} onChange={e => update('classe', e.target.value)} placeholder="Ex: Guerreiro, Mago..." />
+                <Input label="Nome *" value={form.nome} onChange={e => update('nome', e.target.value)} placeholder="Nome do personagem" maxLength={50} />
+                <Input label="Raça" value={form.raca} onChange={e => update('raca', e.target.value)} placeholder="Ex: Humano, Elfo..." maxLength={40} />
+                <Input label="Classe" value={form.classe} onChange={e => update('classe', e.target.value)} placeholder="Ex: Guerreiro, Mago..." maxLength={40} />
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                  <Input label="Nível" type="number" value={form.nivel} onChange={e => update('nivel', Number(e.target.value))} />
+                  <Input label="Nível" type="number" min={1} max={100} value={form.nivel} onChange={e => {
+                    const valor = Number(e.target.value)
+                    update('nivel', Number.isFinite(valor) ? Math.max(1, Math.min(100, Math.trunc(valor))) : 1)
+                  }} />
                   {souDono ? (
                     <Select label="Tipo" value={form.tipo} onChange={e => update('tipo', e.target.value as TPersonagem['tipo'])}>
                       <option value="jogador">Jogador</option>
@@ -398,13 +410,22 @@ export const PersonagemForm: React.FC = () => {
               <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <HpBar atual={form.hpAtual} maximo={form.hpMaximo} />
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                  <Input label="HP Atual" type="number" value={form.hpAtual} onChange={e => update('hpAtual', Number(e.target.value))} />
-                  <Input label="HP Máximo" type="number" value={form.hpMaximo} onChange={e => update('hpMaximo', Number(e.target.value))} />
+                  <Input label="HP Atual" type="number" min={0} max={1000} value={form.hpAtual} onChange={e => {
+                    const valor = Number(e.target.value)
+                    update('hpAtual', Number.isFinite(valor) ? Math.max(0, Math.min(1000, valor)) : 0)
+                  }} />
+                  <Input label="HP Máximo" type="number" min={0} max={1000} value={form.hpMaximo} onChange={e => {
+                    const valor = Number(e.target.value)
+                    update('hpMaximo', Number.isFinite(valor) ? Math.max(0, Math.min(1000, valor)) : 0)
+                  }} />
                 </div>
                 {form.tipo === 'jogador' && (
                   <>
                     <XpBar xp={form.xp} xpProximo={form.xpProximoNivel} nivel={form.nivel} />
-                    <Input label="XP atual" type="number" value={form.xp} onChange={e => update('xp', Number(e.target.value))} />
+                    <Input label="XP atual" type="number" min={0} max={999999} value={form.xp} onChange={e => {
+                      const valor = Number(e.target.value)
+                      update('xp', Number.isFinite(valor) ? Math.max(0, Math.min(999999, valor)) : 0)
+                    }} />
                   </>
                 )}
               </div>
@@ -445,7 +466,7 @@ export const PersonagemForm: React.FC = () => {
 
               {/* Bônus de atributos */}
               <div style={{ marginTop: 16 }}>
-                <div style={{ fontSize: 11, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--ink-faint)', marginBottom: 10 }}>
+                <div style={{ fontSize: 11, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--gold)', fontWeight: 600, marginBottom: 10 }}>
                   Bônus de itens &amp; habilidades
                 </div>
                 {(form.bonusAtributos || []).length === 0 ? (
@@ -484,14 +505,20 @@ export const PersonagemForm: React.FC = () => {
                   <Input
                     label="Valor"
                     type="number"
+                    min={-99}
+                    max={99}
                     value={novoBonus.valor}
-                    onChange={e => setNovoBonus(b => ({ ...b, valor: Number(e.target.value) }))}
+                    onChange={e => {
+                      const valor = Number(e.target.value)
+                      setNovoBonus(b => ({ ...b, valor: Number.isFinite(valor) ? Math.max(-99, Math.min(99, valor)) : 0 }))
+                    }}
                   />
                   <Input
                     label="Origem (item/habilidade)"
                     value={novoBonus.origem}
                     onChange={e => setNovoBonus(b => ({ ...b, origem: e.target.value }))}
                     placeholder="Ex: Anel da Guarda"
+                    maxLength={40}
                   />
                   <Button size="sm" onClick={addBonus} disabled={!novoBonus.atributo || !novoBonus.origem} style={{ alignSelf: 'flex-end' }}>
                     +
@@ -507,6 +534,7 @@ export const PersonagemForm: React.FC = () => {
                 onChange={e => update('notas', e.target.value)}
                 placeholder="Descrição, história, traços de personalidade, segredos..."
                 style={{ marginTop: 14, minHeight: 100 }}
+                maxLength={3000}
               />
             </Panel>
           </div>
@@ -552,6 +580,7 @@ export const PersonagemForm: React.FC = () => {
               onChange={e => setNovoItem(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && addItem()}
               placeholder="Nome do item (pressione Enter para adicionar)"
+              maxLength={80}
               style={{ flex: 1, background: 'var(--bg-card)', border: '1px solid var(--line)', borderRadius: 8, color: 'var(--ink)', fontSize: 13.5, padding: '9px 12px', outline: 'none' }}
             />
             <Button size="sm" onClick={addItem} disabled={!novoItem.trim()}>+ Adicionar</Button>
@@ -561,9 +590,28 @@ export const PersonagemForm: React.FC = () => {
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {inventario.map((item: string, idx: number) => (
-                <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg-card)', border: '1px solid var(--line)', borderRadius: 8, padding: '9px 12px' }}>
-                  <span style={{ fontSize: 13.5 }}>⬡ {item}</span>
-                  <span style={{ color: 'var(--ink-faint)', cursor: 'pointer', fontSize: 14 }} onClick={() => removeItem(idx)}>✕</span>
+                <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, background: 'var(--bg-card)', border: '1px solid var(--line)', borderRadius: 8, padding: '9px 12px' }}>
+                  {editandoItemIdx === idx ? (
+                    <input
+                      autoFocus
+                      value={itemEditValor}
+                      maxLength={80}
+                      onChange={e => setItemEditValor(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') { editItem(idx, itemEditValor); setEditandoItemIdx(null) }
+                        if (e.key === 'Escape') setEditandoItemIdx(null)
+                      }}
+                      onBlur={() => { editItem(idx, itemEditValor); setEditandoItemIdx(null) }}
+                      style={{ flex: 1, background: 'var(--bg-panel)', border: '1px solid var(--gold-dim)', borderRadius: 6, color: 'var(--ink)', fontSize: 13.5, padding: '5px 8px', outline: 'none' }}
+                    />
+                  ) : (
+                    <span
+                      style={{ fontSize: 13.5, cursor: 'pointer', flex: 1, overflowWrap: 'anywhere' }}
+                      title="Clique para editar"
+                      onClick={() => { setEditandoItemIdx(idx); setItemEditValor(item) }}
+                    >⬡ {item}</span>
+                  )}
+                  <span style={{ color: 'var(--ink-faint)', cursor: 'pointer', fontSize: 14, flexShrink: 0 }} onClick={() => removeItem(idx)}>✕</span>
                 </div>
               ))}
             </div>
@@ -575,7 +623,7 @@ export const PersonagemForm: React.FC = () => {
       <Modal open={ataqueModal} onClose={() => setAtaqueModal(false)} title="Ataque / Magia / Habilidade" width={480}>
         {editandoAtaque && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <Input label="Nome" value={editandoAtaque.nome} onChange={e => setEditandoAtaque(a => a ? { ...a, nome: e.target.value } : a)} placeholder="Ex: Espada longa, Bola de Fogo..." />
+            <Input label="Nome" value={editandoAtaque.nome} onChange={e => setEditandoAtaque(a => a ? { ...a, nome: e.target.value } : a)} placeholder="Ex: Espada longa, Bola de Fogo..." maxLength={50} />
             <Select label="Tipo" value={editandoAtaque.tipo} onChange={e => setEditandoAtaque(a => a ? { ...a, tipo: e.target.value as Ataque['tipo'] } : a)}>
               <option value="arma_cac">Arma corpo a corpo</option>
               <option value="arma_distancia">Arma à distância</option>
@@ -583,15 +631,15 @@ export const PersonagemForm: React.FC = () => {
               <option value="habilidade">Habilidade especial</option>
             </Select>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <Input label="Dados de dano" value={editandoAtaque.dados} onChange={e => setEditandoAtaque(a => a ? { ...a, dados: e.target.value } : a)} placeholder="Ex: 2d6+3" />
-              <Input label="Tipo de dano" value={editandoAtaque.tipoDano} onChange={e => setEditandoAtaque(a => a ? { ...a, tipoDano: e.target.value } : a)} placeholder="Ex: fogo, cortante..." />
+              <Input label="Dados de dano" value={editandoAtaque.dados} onChange={e => setEditandoAtaque(a => a ? { ...a, dados: e.target.value } : a)} placeholder="Ex: 2d6+3" maxLength={20} />
+              <Input label="Tipo de dano" value={editandoAtaque.tipoDano} onChange={e => setEditandoAtaque(a => a ? { ...a, tipoDano: e.target.value } : a)} placeholder="Ex: fogo, cortante..." maxLength={30} />
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <Input label="Alcance" value={editandoAtaque.alcance} onChange={e => setEditandoAtaque(a => a ? { ...a, alcance: e.target.value } : a)} placeholder="Ex: 9m, corpo a corpo" />
-              <Input label="Custo de recurso" value={editandoAtaque.custoRecurso || ''} onChange={e => setEditandoAtaque(a => a ? { ...a, custoRecurso: e.target.value } : a)} placeholder="Ex: 2 de mana" />
+              <Input label="Alcance" value={editandoAtaque.alcance} onChange={e => setEditandoAtaque(a => a ? { ...a, alcance: e.target.value } : a)} placeholder="Ex: 9m, corpo a corpo" maxLength={30} />
+              <Input label="Custo de recurso" value={editandoAtaque.custoRecurso || ''} onChange={e => setEditandoAtaque(a => a ? { ...a, custoRecurso: e.target.value } : a)} placeholder="Ex: 2 de mana" maxLength={30} />
             </div>
-            <Input label="Recarga" value={editandoAtaque.recarga || ''} onChange={e => setEditandoAtaque(a => a ? { ...a, recarga: e.target.value } : a)} placeholder="Ex: 1x por combate, descanso longo..." />
-            <Textarea label="Descrição / efeito" value={editandoAtaque.descricao || ''} onChange={e => setEditandoAtaque(a => a ? { ...a, descricao: e.target.value } : a)} placeholder="O que acontece quando usa?" />
+            <Input label="Recarga" value={editandoAtaque.recarga || ''} onChange={e => setEditandoAtaque(a => a ? { ...a, recarga: e.target.value } : a)} placeholder="Ex: 1x por combate, descanso longo..." maxLength={40} />
+            <Textarea label="Descrição / efeito" value={editandoAtaque.descricao || ''} onChange={e => setEditandoAtaque(a => a ? { ...a, descricao: e.target.value } : a)} placeholder="O que acontece quando usa?" maxLength={1000} />
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 6 }}>
               <Button variant="ghost" onClick={() => setAtaqueModal(false)}>Cancelar</Button>
               <Button onClick={saveAtaque} disabled={!editandoAtaque.nome.trim()}>Salvar</Button>

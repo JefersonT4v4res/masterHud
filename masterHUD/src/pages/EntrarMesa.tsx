@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Topbar } from '../components/layout/Topbar'
 import { Button, Input, Panel, PanelTitle, Avatar, HpBar } from '../components/ui'
 import { claimPersonagem, entrarNaMesa, getSlotsLivres, resolveConvite } from '../db'
+import { auth } from '../firebase'
 import type { Convite, Personagem } from '../types'
 
 const sistemaLabel: Record<string, string> = {
@@ -28,6 +29,10 @@ export const EntrarMesa: React.FC = () => {
       const c = await resolveConvite(codigo.trim().toUpperCase())
       if (!c) {
         setErro('Código não encontrado. Confira com o mestre e tente de novo.')
+        return
+      }
+      if (c.donoUid === auth.currentUser?.uid) {
+        setErro('Essa mesa é sua — você já tem acesso completo a ela em "Jogos", não precisa entrar por convite.')
         return
       }
       setConvite(c)

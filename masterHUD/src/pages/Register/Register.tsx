@@ -73,6 +73,7 @@ export function Register() {
                   value={nome}
                   onChange={(e) => setNome(e.target.value)}
                   required
+                  maxLength={60}
                 />
               </label>
 

@@ -50,7 +50,7 @@ export const Jogos: React.FC = () => {
   }, [])
 
   const handleReativar = async (mesa: MesaListada) => {
-    await updateMesa(mesa.donoUid, mesa.id!, { status: 'ativa' })
+    await updateMesa(mesa.donoUid, mesa.id!, { status: 'ativa', encerradaEm: null })
     load()
   }
 
@@ -72,12 +72,7 @@ export const Jogos: React.FC = () => {
     <div style={{ minHeight: '100vh' }}>
       <Topbar
         crumbs={[{ label: 'Início', to: '/' }, { label: 'Jogos' }]}
-        right={
-          <>
-            <Button size="sm" onClick={() => navigate('/mesa/nova')}>+ Criar nova mesa</Button>
-            <UserMenu />
-          </>
-        }
+        right={<UserMenu />}
       />
 
       <div className="mh-page-grid" style={{ maxWidth: 1200, margin: '0 auto', padding: '28px 32px' }}>
@@ -112,18 +107,20 @@ export const Jogos: React.FC = () => {
 
           {/* Lista de mesas */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            {filtradas.map(mesa => (
+            {filtradas.map(mesa => {
+              const inativa = mesa.status !== 'ativa'
+              return (
               <div key={mesa.id} style={{
                 display: 'flex', gap: 18, alignItems: 'center',
-                background: mesa.status === 'pausada' ? 'rgba(42,49,66,0.5)' : 'var(--bg-card)',
+                background: inativa ? 'rgba(42,49,66,0.5)' : 'var(--bg-card)',
                 border: '1px solid var(--line)', borderRadius: 12, padding: 18,
-                opacity: mesa.status === 'pausada' ? 0.75 : 1, cursor: 'default',
+                opacity: inativa ? 0.75 : 1, cursor: 'default',
               }}>
                 <div style={{
                   width: 90, height: 90, borderRadius: 10, flexShrink: 0, overflow: 'hidden',
                   background: 'var(--gold-dim)', display: 'grid', placeItems: 'center',
                   fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--bg-deep)', fontSize: 28,
-                  filter: mesa.status === 'pausada' ? 'grayscale(0.5)' : 'none',
+                  filter: inativa ? 'grayscale(0.5)' : 'none',
                 }}>
                   {mesa.imagemUrl ? <img src={mesa.imagemUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : mesa.nome[0]}
                 </div>
@@ -142,6 +139,9 @@ export const Jogos: React.FC = () => {
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--ink-faint)' }}>
                     Criada em {new Date(mesa.criadaEm).toLocaleDateString('pt-BR')}
+                    {mesa.status === 'encerrada' && mesa.encerradaEm && (
+                      <> · Encerrada em {new Date(mesa.encerradaEm).toLocaleDateString('pt-BR')}</>
+                    )}
                   </div>
                 </div>
 
@@ -149,12 +149,16 @@ export const Jogos: React.FC = () => {
                   {mesa.status === 'pausada' && mesa.souDono && (
                     <Button size="sm" variant="secondary" onClick={() => handleReativar(mesa)}>Reativar mesa</Button>
                   )}
+                  {mesa.status === 'encerrada' && mesa.souDono && (
+                    <Button size="sm" variant="secondary" onClick={() => handleReativar(mesa)}>Reabrir mesa</Button>
+                  )}
                   <Button size="sm" variant={mesa.status === 'ativa' ? 'ghost' : undefined} onClick={() => navigate(`/mesa/${mesa.donoUid}/${mesa.id}`)}>
                     {mesa.souDono ? 'Gerenciar mesa' : 'Ver mesa'}
                   </Button>
                 </div>
               </div>
-            ))}
+              )
+            })}
 
             {filtradas.length === 0 && (
               <Panel style={{ textAlign: 'center', padding: '40px 24px' }}>

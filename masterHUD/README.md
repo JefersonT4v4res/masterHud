@@ -90,6 +90,9 @@ A tela `/stream` (overlay pra compartilhar com jogadores sem acesso à ferrament
 - Editar nome/descrição da mesa depois de criada (`Gerenciador → Informações da mesa`) — o sistema (`dnd5e`/`tormenta20`/`custom`) não pode ser trocado depois, porque muda os atributos que as fichas já existentes esperam
 - Mestre vê quem é dono de cada ficha ("Jogado por: fulano", inclusive na própria ficha) e pode atribuir/trocar o dono de uma ficha direto por um dropdown com quem já entrou na mesa — com checagem pra não deixar o mesmo jogador com duas fichas ao mesmo tempo
 - Upload de imagem (perfil e fichas) sempre passa por `src/utils/imagem.ts`, que redimensiona pra um quadrado pequeno (160–200px) antes de virar base64 — documentos do Firestore têm limite de 1MB, e uma foto de câmera em tamanho original estoura isso fácil
+- Imagem da mesa pode ser definida já na criação (`/mesa/nova`), não só depois no Gerenciador
+- Mesa pode ser "encerrada" (campanha finalizada, some da aba "Ativas" em `/jogos`) além de pausada/excluída — reversível a qualquer momento (`Zona de risco → Encerrar mesa` / botão "Reabrir mesa" na lista)
+- Dados rápidos no Combate (d4–d20) acumulam na expressão em vez de rolar na hora — dá pra clicar várias vezes (soma o mesmo tipo de dado) e só rola de fato ao confirmar
 
 ## Segurança
 
@@ -101,8 +104,8 @@ A tela `/stream` (overlay pra compartilhar com jogadores sem acesso à ferrament
 ## O que falta
 
 - Chat mestre ↔ jogadores — é o terceiro atalho do rodapé flutuante no Combate (💬), já no lugar, mas sem lógica implementada
-- Revogar/regenerar código de convite, e jogador conseguir "sair da mesa" sozinho — hoje só o mestre consegue remover um jogador manualmente
-- Combate ao vivo com o jogador acompanhando em tempo real — depende de trocar leitura "busca uma vez" por `onSnapshot`; hoje o jogador só vê o resumo do grupo atualizado quando o mestre recarrega o Gerenciador
+- Revogar/regenerar código de convite, e jogador conseguir "sair da mesa" sozinho — hoje só o mestre consegue remover um jogador manualmente - esconder o código de convite
+- Tela do jogador durante o combate precisa ser reformulada, não só "ficar em tempo real" — feedback de teste real (3 contas): jogador quer rolar os próprios dados, ver a própria ficha e a vida dos aliados tudo na mesma tela, ao vivo; hoje ele só vê o resumo do grupo (HP), que fica obsoleto até o mestre recarregar o Gerenciador. Tecnicamente depende de trocar leitura "busca uma vez" por `onSnapshot`, mas o problema é também de design de tela, não só de atualização
 - Tela de molde da mesa — hoje só é definido um padrão na criação da mesa, sem UI para editar depois
 - Marcar status do personagem (vivo/morto/inconsciente) manualmente — o campo existe no modelo (`Personagem.status`) mas não há UI para alterá-lo
 - O toggle "Modo mestre/audiência" do Combate hoje só esconde HP de NPC — poderia esconder também descrição de ataques, e/ou ganhar um equivalente no Gerenciador
