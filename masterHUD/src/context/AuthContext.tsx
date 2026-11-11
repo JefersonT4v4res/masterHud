@@ -10,11 +10,22 @@ import {
   type ActionCodeSettings,
   type User,
 } from 'firebase/auth'
-import { doc, serverTimestamp, setDoc } from 'firebase/firestore'
+import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore'
 import { auth, db } from '../firebase'
+
+// Campos do perfil que só existem no Firestore (não cabem no `photoURL`/`displayName`
+// do Firebase Auth — o Auth tem um limite rígido de ~2048 caracteres em photoURL,
+// curto demais pra uma foto embutida como base64).
+export interface PerfilDoc {
+  nome?: string
+  frase?: string
+  fotoUrl?: string
+  compendio?: string
+}
 
 interface AuthContextValue {
   user: User | null
+  perfil: PerfilDoc | null
   loading: boolean
   register: (email: string, password: string, nome: string) => Promise<void>
   login: (email: string, password: string) => Promise<void>
@@ -23,6 +34,7 @@ interface AuthContextValue {
   refreshUser: () => void
   reloadUser: () => Promise<void>
   resendVerificationEmail: () => Promise<void>
+  refreshPerfil: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
@@ -40,11 +52,16 @@ const AUTH_ERROR_MESSAGES: Record<string, string> = {
   'auth/password-does-not-meet-requirements': 'A senha não atende aos requisitos mínimos de segurança do Firebase.',
 }
 
-function traduzErro(err: unknown): Error {
+function traduzErro(err: unknown): Error & { code?: string } {
   const code = (err as { code?: string })?.code
-  if (code && AUTH_ERROR_MESSAGES[code]) return new Error(AUTH_ERROR_MESSAGES[code])
-  if (err instanceof Error && err.message) return err
-  return new Error('Não foi possível completar a ação. Tente novamente.')
+  const mensagem = code && AUTH_ERROR_MESSAGES[code]
+    ? AUTH_ERROR_MESSAGES[code]
+    : err instanceof Error && err.message
+      ? err.message
+      : 'Não foi possível completar a ação. Tente novamente.'
+  const erro: Error & { code?: string } = new Error(mensagem)
+  if (code) erro.code = code
+  return erro
 }
 
 // Depois de clicar no link do email, o Firebase confirma a verificação na própria página
@@ -62,15 +79,25 @@ function withTimeout<T>(promise: Promise<T>, ms: number, mensagem: string): Prom
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null)
+  const [perfil, setPerfil] = useState<PerfilDoc | null>(null)
   const [loading, setLoading] = useState(true)
+
+  const carregarPerfil = async (u: User | null) => {
+    if (!u) { setPerfil(null); return }
+    const snap = await getDoc(doc(db, 'usuarios', u.uid))
+    setPerfil(snap.exists() ? (snap.data() as PerfilDoc) : null)
+  }
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       setUser(u)
       setLoading(false)
+      carregarPerfil(u)
     })
     return unsubscribe
   }, [])
+
+  const refreshPerfil = () => carregarPerfil(auth.currentUser)
 
   const register = async (email: string, password: string, nome: string) => {
     try {
@@ -125,7 +152,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   return (
     <AuthContext.Provider value={{
-      user, loading, register, login, logout, resetPassword, refreshUser, reloadUser, resendVerificationEmail,
+      user, perfil, loading, register, login, logout, resetPassword, refreshUser, reloadUser, resendVerificationEmail, refreshPerfil,
     }}>
       {children}
     </AuthContext.Provider>

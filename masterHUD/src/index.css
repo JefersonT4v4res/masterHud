@@ -37,3 +37,26 @@ a { text-decoration: none; color: inherit; }
 .gold { color: var(--gold); }
 .ink-dim { color: var(--ink-dim); }
 .ink-faint { color: var(--ink-faint); }
+
+/* Responsivo — grids que em telas largas têm colunas fixas (conteúdo + barra
+   lateral de 300px, ou 4 cartões numa linha), mas em telas estreitas (celular)
+   quebravam por não ter media query nenhuma. O resto do app usa estilo inline,
+   então essas duas classes só existem pra carregar os breakpoints que o inline
+   não consegue expressar sozinho. */
+.mh-page-grid {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 22px;
+}
+.mh-quick-actions {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
+@media (max-width: 860px) {
+  .mh-page-grid { grid-template-columns: 1fr; }
+  .mh-quick-actions { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 480px) {
+  .mh-quick-actions { grid-template-columns: 1fr; }
+}

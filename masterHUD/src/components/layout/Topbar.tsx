@@ -2,7 +2,7 @@ import React from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import masterhudIcon from '../../assets/masterhud-icon.png'
 
-interface Crumb { label: string; to?: string }
+interface Crumb { label: string; to?: string; onClick?: () => void }
 
 interface TopbarProps {
   crumbs?: Crumb[]
@@ -14,10 +14,11 @@ export const Topbar: React.FC<TopbarProps> = ({ crumbs, right }) => {
   return (
     <div style={{
       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      flexWrap: 'wrap', rowGap: 10,
       padding: '16px 32px', borderBottom: '1px solid var(--line)',
       background: 'var(--bg-panel)', position: 'sticky', top: 0, zIndex: 50,
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 18, minWidth: 0, flexWrap: 'wrap', rowGap: 6 }}>
         {/* Brand */}
         <div
           onClick={() => navigate('/')}
@@ -39,7 +40,13 @@ export const Topbar: React.FC<TopbarProps> = ({ crumbs, right }) => {
             {crumbs.map((c, i) => (
               <React.Fragment key={i}>
                 {i > 0 && <span style={{ opacity: 0.4 }}>/</span>}
-                {c.to ? (
+                {c.onClick ? (
+                  <span onClick={c.onClick} style={{ color: 'var(--ink-faint)', cursor: 'pointer' }}
+                    onMouseEnter={e => (e.currentTarget.style.color = 'var(--gold)')}
+                    onMouseLeave={e => (e.currentTarget.style.color = 'var(--ink-faint)')}>
+                    {c.label}
+                  </span>
+                ) : c.to ? (
                   <Link to={c.to} style={{ color: 'var(--ink-faint)' }}
                     onMouseEnter={e => (e.currentTarget.style.color = 'var(--gold)')}
                     onMouseLeave={e => (e.currentTarget.style.color = 'var(--ink-faint)')}>
@@ -54,7 +61,7 @@ export const Topbar: React.FC<TopbarProps> = ({ crumbs, right }) => {
         )}
       </div>
 
-      {right && <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>{right}</div>}
+      {right && <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>{right}</div>}
     </div>
   )
 }

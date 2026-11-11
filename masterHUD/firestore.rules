@@ -1,0 +1,95 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /usuarios/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+
+      // Índice pessoal: "em quais mesas eu entrei (e como quem)".
+      match /mesasParticipando/{mesaId} {
+        allow read, write: if request.auth != null && request.auth.uid == uid;
+      }
+
+      match /mesas/{mesaId} {
+        function soAdicionouProprioUid(antes, depois) {
+          let novos = depois.toSet().difference(antes.toSet());
+          return depois.size() == antes.size() + 1
+              && novos.size() == 1
+              && novos.hasOnly([request.auth.uid]);
+        }
+
+        allow read: if request.auth != null &&
+          (request.auth.uid == uid || request.auth.uid in resource.data.membros);
+        allow create, delete: if request.auth != null && request.auth.uid == uid;
+        allow update: if (request.auth != null && request.auth.uid == uid)
+          || (
+            request.auth != null &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['membros']) &&
+            soAdicionouProprioUid(resource.data.membros, request.resource.data.membros)
+          );
+
+        match /personagens/{personagemId} {
+          function souDono() { return request.auth != null && request.auth.uid == uid; }
+          function ehMembro() {
+            return request.auth != null &&
+              request.auth.uid in get(/databases/$(database)/documents/usuarios/$(uid)/mesas/$(mesaId)).data.membros;
+          }
+
+          // Dono vê tudo. Jogador vê a própria ficha claimada, ou slots
+          // "jogador" ainda não claimados (pra poder escolher um na entrada).
+          allow read: if souDono()
+            || resource.data.jogadorUid == request.auth.uid
+            || (ehMembro() && resource.data.tipo == 'jogador' && resource.data.jogadorUid == null);
+
+          allow create: if souDono()
+            || (ehMembro()
+                && request.resource.data.tipo == 'jogador'
+                && request.resource.data.jogadorUid == request.auth.uid);
+
+          allow update: if souDono()
+            // "claim" de um slot ainda livre: só pode setar o próprio uid e o nome
+            // (autodeclarado, usado só pra exibir "vinculado a fulano" pro mestre).
+            || (ehMembro()
+                && resource.data.tipo == 'jogador'
+                && resource.data.jogadorUid == null
+                && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['jogadorUid', 'jogadorNome'])
+                && request.resource.data.jogadorUid == request.auth.uid)
+            // edição da própria ficha já claimada: não pode mudar o dono nem o tipo.
+            || (resource.data.jogadorUid == request.auth.uid
+                && request.resource.data.jogadorUid == request.auth.uid
+                && request.resource.data.tipo == 'jogador');
+
+          allow delete: if souDono();
+        }
+
+        // Projeção mínima p/ consciência de grupo — nunca NPC/monstro, nunca
+        // campos além dos listados em ResumoJogador (src/types/index.ts).
+        match /resumo/jogadores {
+          allow read: if request.auth != null &&
+            (request.auth.uid == uid || request.auth.uid in get(/databases/$(database)/documents/usuarios/$(uid)/mesas/$(mesaId)).data.membros);
+          allow write: if request.auth != null && request.auth.uid == uid;
+        }
+
+        // Registro autodeclarado "qual é meu nome nessa mesa" — existe só pra dar ao
+        // mestre uma lista legível de quem já entrou (pro dropdown de atribuir ficha),
+        // já que ele não tem permissão de ler o perfil de outra conta. Não concede
+        // acesso a nada: quem pode reivindicar/editar ficha continua sendo decidido
+        // só pelas regras de /personagens acima.
+        match /membrosInfo/{memberUid} {
+          allow read: if request.auth != null && request.auth.uid == uid;
+          allow write: if request.auth != null && request.auth.uid == memberUid;
+        }
+      }
+    }
+
+    // Autorização por conhecimento do código, não por identidade — por isso
+    // "get" é liberado pra qualquer autenticado, mas "list" é sempre bloqueado
+    // (senão daria pra enumerar o convite de toda mesa de todo mestre).
+    match /convites/{codigo} {
+      allow get: if request.auth != null;
+      allow list: if false;
+      allow create: if request.auth != null && request.resource.data.donoUid == request.auth.uid;
+      allow delete: if request.auth != null && resource.data.donoUid == request.auth.uid;
+    }
+  }
+}

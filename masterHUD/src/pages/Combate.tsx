@@ -5,18 +5,26 @@ import { Button, Avatar, HpBar, Modal, Toast } from '../components/ui'
 import { DiceRollerModal } from '../components/DiceRollerModal'
 import { getMesa, getPersonagens, updatePersonagem } from '../db'
 import { parseDiceExpression, executeRoll, cryptoRollSingle, type RollResult } from '../hooks/useDiceRoller'
+import { auth } from '../firebase'
 import type { Personagem, Ataque } from '../types'
-import { calcAtributo } from '../types'
+import { calcAtributo, imagemAtual } from '../types'
+import { aplicarXp } from '../utils/xp'
 
 interface FilaItem { personagemId: string; iniciativa: number }
 interface Participante { personagem: Personagem; iniciativa: number }
 
 export const Combate: React.FC = () => {
-  const { id } = useParams<{ id: string }>()
+  const { donoUid: dUid, id } = useParams<{ donoUid: string; id: string }>()
+  const donoUid = dUid!
   const mesaId = id!
+  const souDono = donoUid === auth.currentUser!.uid
   const navigate = useNavigate()
   const location = useLocation()
   const filaPids: FilaItem[] = (location.state as { fila?: FilaItem[] })?.fila || []
+
+  // Combate é só do mestre nesta rodada — sem leitura/edição em tempo real pra
+  // múltiplos espectadores ainda.
+  useEffect(() => { if (!souDono) navigate(`/mesa/${donoUid}/${mesaId}`, { replace: true }) }, [souDono, donoUid, mesaId, navigate])
 
   const [mesaNome, setMesaNome]       = useState('')
   const [participantes, setParticipantes] = useState<Participante[]>([])
@@ -30,13 +38,13 @@ export const Combate: React.FC = () => {
   const [diceModal, setDiceModal]     = useState(false)
   const [fichaModal, setFichaModal]   = useState(false)
   const [rollHistory, setRollHistory] = useState<RollResult[]>([])
-  const [diceExpr, setDiceExpr]       = useState('1d20')
+  const [diceExpr, setDiceExpr]       = useState('')
   const [dicePublic, setDicePublic]   = useState(true)
   const [audiencia, setAudiencia]     = useState(false)  // false = modo mestre, true = modo stream
   const trackRef                      = useRef<HTMLDivElement>(null)
 
   const load = useCallback(async () => {
-    const [m, todos] = await Promise.all([getMesa(mesaId), getPersonagens(mesaId)])
+    const [m, todos] = await Promise.all([getMesa(donoUid, mesaId), getPersonagens(donoUid, mesaId)])
     if (m) setMesaNome(m.nome)
 
     let ordenados: Participante[]
@@ -57,9 +65,13 @@ export const Combate: React.FC = () => {
     }
     setParticipantes(ordenados)
     if (ordenados.length > 0) setSelecionado(ordenados[0])
-  }, [mesaId]) // eslint-disable-line
+  }, [donoUid, mesaId]) // eslint-disable-line
 
-  useEffect(() => { load() }, [load])
+  // Não dispara a leitura pra quem não é dono: além de ser a regra de negócio
+  // (combate é só do mestre nesta rodada), a coleção de personagens tem NPCs que
+  // as regras do Firestore negam pra um membro comum — uma query sem filtro aqui
+  // seria rejeitada por completo antes mesmo do redirect acima surtir efeito.
+  useEffect(() => { if (souDono) load() }, [load, souDono])
 
   // Scroll automático para o card ativo na trilha
   useEffect(() => {
@@ -82,7 +94,7 @@ export const Combate: React.FC = () => {
     const novoHp = tipo === 'dano'
       ? Math.max(0, atual - delta)
       : Math.min(max, atual + delta)
-    await updatePersonagem(mesaId, selecionado.personagem.id!, {
+    await updatePersonagem(donoUid, mesaId, selecionado.personagem.id!, {
       hpAtual: novoHp,
       status: novoHp === 0 ? 'inconsciente' : 'vivo',
     })
@@ -98,6 +110,22 @@ export const Combate: React.FC = () => {
     if (!parsed) return
     const result = executeRoll(parsed, rolledBy, isPublic, bonusLabel)
     setRollHistory(prev => [result, ...prev.slice(0, 29)])
+  }, [])
+
+  // Clicar num dado rápido só acumula na expressão (soma ao termo do mesmo tipo
+  // de dado, se já tiver um) — só rola de fato quando clica em "Rolar" ou Enter.
+  const addDado = useCallback((dado: string) => {
+    setDiceExpr(prev => {
+      const termos = prev.split('+').map(t => t.trim()).filter(Boolean)
+      const idx = termos.findIndex(t => new RegExp(`^\\d+${dado}$`).test(t))
+      if (idx >= 0) {
+        const qtd = parseInt(termos[idx].slice(0, -dado.length), 10) + 1
+        termos[idx] = `${qtd}${dado}`
+      } else {
+        termos.push(`1${dado}`)
+      }
+      return termos.join('+')
+    })
   }, [])
 
   const rolarAtaque = useCallback((ataque: Ataque) => {
@@ -123,17 +151,22 @@ export const Combate: React.FC = () => {
   }, [selecionado, dicePublic])
 
   const distribuirXp = async () => {
+    const subiramNivel: string[] = []
     await Promise.all(
       Object.entries(xpValues).map(async ([pid, xp]) => {
         if (!xp) return
         const p = participantes.find(pt => pt.personagem.id === pid)?.personagem
         if (!p) return
-        await updatePersonagem(mesaId, pid, { xp: p.xp + xp })
+        const resultado = aplicarXp(p, xp)
+        if (resultado.subiuNivel) subiramNivel.push(p.nome)
+        await updatePersonagem(donoUid, mesaId, pid, {
+          xp: resultado.xp, nivel: resultado.nivel, xpProximoNivel: resultado.xpProximoNivel,
+        })
       })
     )
-    showToast('XP distribuído!')
+    showToast(subiramNivel.length > 0 ? `🎉 ${subiramNivel.join(', ')} subiu de nível!` : 'XP distribuído!')
     setXpModal(false)
-    navigate(`/mesa/${mesaId}`)
+    setTimeout(() => navigate(`/mesa/${donoUid}/${mesaId}`), 1200)
   }
 
   const showToast = (msg: string) => {
@@ -159,7 +192,7 @@ export const Combate: React.FC = () => {
       <Topbar
         crumbs={[
           { label: 'Início', to: '/' },
-          { label: mesaNome, to: `/mesa/${mesaId}` },
+          { label: mesaNome, to: `/mesa/${donoUid}/${mesaId}` },
           { label: 'Combate' },
         ]}
         right={
@@ -245,7 +278,7 @@ export const Combate: React.FC = () => {
                     boxShadow: '0 0 0 3px var(--bg-panel)',
                   }}>{p.iniciativa}</div>
                 )}
-                <Avatar nome={p.personagem.nome} src={p.personagem.imagemUrl} size={50} />
+                <Avatar nome={p.personagem.nome} src={imagemAtual(p.personagem)} size={50} />
                 <div style={{ fontFamily: 'var(--font-display)', fontSize: 12.5, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 6 }}>
                   {p.personagem.nome}
                 </div>
@@ -295,7 +328,7 @@ export const Combate: React.FC = () => {
           <div style={{ background: 'var(--bg-panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 20 }}>
             <div style={{ fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', color: 'var(--gold)', marginBottom: 14 }}>Personagem ativo</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-              <Avatar nome={selecionado.personagem.nome} src={selecionado.personagem.imagemUrl} size={52} border="2px solid var(--gold)" />
+              <Avatar nome={selecionado.personagem.nome} src={imagemAtual(selecionado.personagem)} size={52} border="2px solid var(--gold)" />
               <div>
                 <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 600 }}>{selecionado.personagem.nome}</div>
                 {/* Raça/classe de NPC fica borrada em audiência */}
@@ -407,14 +440,18 @@ export const Combate: React.FC = () => {
                     onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--line)')}
                   >
                     <span>{atr.nome}</span>
-                    {/* Valores numéricos do NPC ficam borrados em audiência */}
+                    {/* Valores numéricos do NPC ficam borrados em audiência.
+                        `blurStyle` sempre devolve `display: 'inline-block'` — precisa
+                        vir ANTES aqui, senão apaga o `display: 'flex'` que mantém o
+                        "(base+bônus)" separado do total (exatamente o bug do print:
+                        sem flex, o `gap` não faz nada e os dois span ficam colados). */}
                     <span style={{
-                      display: 'flex', alignItems: 'center', gap: 5,
                       ...blurStyle(!isNpcAtivo),
+                      display: 'flex', alignItems: 'center', gap: 10,
                     }}>
                       {bonus !== 0 && (
-                        <span style={{ fontSize: 10, color: bonus > 0 ? 'var(--moss)' : 'var(--blood)' }}>
-                          base {atr.valor} {bonus > 0 ? '+' : ''}{bonus}
+                        <span style={{ fontSize: 10, color: bonus > 0 ? 'var(--moss)' : 'var(--blood)', whiteSpace: 'nowrap' }}>
+                          ({atr.valor}{bonus > 0 ? '+' : ''}{bonus})
                         </span>
                       )}
                       <span style={{
@@ -438,22 +475,26 @@ export const Combate: React.FC = () => {
               <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 10 }}>
                 {['d4','d6','d8','d10','d12','d20'].map(d => (
                   <button key={d}
-                    onClick={() => rolarDado(`1${d}`, dicePublic, selecionado.personagem.nome)}
+                    onClick={() => addDado(d)}
+                    title={`Adiciona ${d} à rolagem — clique em "Rolar" quando terminar de somar`}
                     style={{ background: 'var(--bg-card)', border: '1px solid var(--line)', color: 'var(--ink)', fontFamily: 'var(--font-display)', fontSize: 12, padding: '6px 10px', borderRadius: 7, cursor: 'pointer' }}
                     onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--gold-dim)')}
                     onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--line)')}
-                  >{d}</button>
+                  >+{d}</button>
                 ))}
               </div>
               <div style={{ display: 'flex', gap: 6 }}>
                 <input
                   value={diceExpr}
-                  onChange={e => setDiceExpr(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && rolarDado(diceExpr, dicePublic, selecionado.personagem.nome)}
-                  placeholder="2d6+3"
-                  style={{ flex: 1, background: 'var(--bg-card)', border: '1px solid var(--line)', borderRadius: 7, color: 'var(--ink)', fontFamily: 'var(--font-display)', fontSize: 14, padding: '8px 10px', outline: 'none', letterSpacing: 1 }}
+                  readOnly
+                  title="Clique nos dados acima pra montar a rolagem — esse campo só mostra o resultado"
+                  placeholder="Clique nos dados acima"
+                  style={{ flex: 1, background: 'var(--bg-card)', border: '1px solid var(--line)', borderRadius: 7, color: 'var(--ink)', fontFamily: 'var(--font-display)', fontSize: 14, padding: '8px 10px', outline: 'none', letterSpacing: 1, cursor: 'default' }}
                 />
-                <Button size="sm" onClick={() => rolarDado(diceExpr, dicePublic, selecionado.personagem.nome)}>⬡</Button>
+                {diceExpr.trim() && (
+                  <Button size="sm" variant="ghost" title="Limpar" onClick={() => setDiceExpr('')}>✕</Button>
+                )}
+                <Button size="sm" disabled={!diceExpr.trim()} onClick={() => { rolarDado(diceExpr, dicePublic, selecionado.personagem.nome); setDiceExpr('') }}>Rolar ⬡</Button>
               </div>
               {/* Toggle público/privado */}
               <div
@@ -544,13 +585,13 @@ export const Combate: React.FC = () => {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {participantes.filter(p => p.personagem.tipo === 'jogador').map(p => (
             <div key={p.personagem.id} style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'var(--bg-card)', border: '1px solid var(--line)', borderRadius: 9, padding: '12px 14px' }}>
-              <Avatar nome={p.personagem.nome} src={p.personagem.imagemUrl} size={40} />
+              <Avatar nome={p.personagem.nome} src={imagemAtual(p.personagem)} size={40} />
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>{p.personagem.nome}</div>
                 <HpBar atual={p.personagem.hpAtual} maximo={p.personagem.hpMaximo} />
               </div>
               <Button size="sm" variant="ghost"
-                onClick={() => window.open(`/mesa/${mesaId}/personagem/${p.personagem.id}/editar`, '_blank')}
+                onClick={() => window.open(`/mesa/${donoUid}/${mesaId}/personagem/${p.personagem.id}/editar`, '_blank')}
               >
                 ✎ Editar ↗
               </Button>
@@ -566,11 +607,12 @@ export const Combate: React.FC = () => {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--bg-card)', border: '1px dashed var(--line)', borderRadius: 9, padding: '10px 12px', marginBottom: 16 }}>
           <span style={{ fontSize: 12.5, color: 'var(--ink-dim)', flexShrink: 0 }}>Aplicar a todos:</span>
-          <input type="number" placeholder="50" id="bulk-xp"
+          <input type="number" placeholder="50" id="bulk-xp" min={0} max={999999}
             style={{ width: 70, background: 'var(--bg-panel)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--gold)', textAlign: 'center', fontFamily: 'var(--font-display)', fontWeight: 600, padding: 6, outline: 'none' }}
           />
           <Button size="sm" variant="secondary" onClick={() => {
-            const val = Number((document.getElementById('bulk-xp') as HTMLInputElement).value)
+            const bruto = Number((document.getElementById('bulk-xp') as HTMLInputElement).value)
+            const val = Number.isFinite(bruto) ? Math.max(0, Math.min(999999, bruto)) : 0
             const next: Record<string, number> = {}
             jogadores.forEach(p => { if (p.personagem.id) next[p.personagem.id] = val })
             setXpValues(next)
@@ -578,15 +620,18 @@ export const Combate: React.FC = () => {
         </div>
         {jogadores.map(p => (
           <div key={p.personagem.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', borderBottom: '1px solid var(--line)' }}>
-            <Avatar nome={p.personagem.nome} src={p.personagem.imagemUrl} size={38} />
+            <Avatar nome={p.personagem.nome} src={imagemAtual(p.personagem)} size={38} />
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 600, fontSize: 14 }}>{p.personagem.nome}</div>
               <div style={{ fontSize: 11.5, color: 'var(--ink-faint)' }}>Nível {p.personagem.nivel} · {p.personagem.xp} XP</div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-              <input type="number"
+              <input type="number" min={0} max={999999}
                 value={xpValues[p.personagem.id!] ?? 0}
-                onChange={e => setXpValues(prev => ({ ...prev, [p.personagem.id!]: Number(e.target.value) }))}
+                onChange={e => {
+                  const valor = Number(e.target.value)
+                  setXpValues(prev => ({ ...prev, [p.personagem.id!]: Number.isFinite(valor) ? Math.max(0, Math.min(999999, valor)) : 0 }))
+                }}
                 style={{ width: 70, background: 'var(--bg-card)', border: '1px solid var(--line)', borderRadius: 7, color: 'var(--ink)', textAlign: 'center', fontFamily: 'var(--font-display)', fontSize: 14, padding: '8px 4px', outline: 'none' }}
               />
               <span style={{ fontSize: 11.5, color: 'var(--ink-faint)' }}>XP</span>
@@ -594,7 +639,7 @@ export const Combate: React.FC = () => {
           </div>
         ))}
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 }}>
-          <Button variant="ghost" onClick={() => { setXpModal(false); navigate(`/mesa/${mesaId}`) }}>
+          <Button variant="ghost" onClick={() => { setXpModal(false); navigate(`/mesa/${donoUid}/${mesaId}`) }}>
             Encerrar sem XP
           </Button>
           <Button onClick={distribuirXp}>Confirmar e encerrar</Button>
@@ -602,7 +647,12 @@ export const Combate: React.FC = () => {
       </Modal>
 
       {toast && <Toast message={toast} visible={!!toast} />}
-      <DiceRollerModal open={diceModal} onClose={() => setDiceModal(false)} />
+      <DiceRollerModal
+        open={diceModal} onClose={() => setDiceModal(false)}
+        rolledBy={selecionado?.personagem.nome || 'Mestre'}
+        isPublic={dicePublic} onTogglePublic={() => setDicePublic(p => !p)}
+        history={rollHistory} onRoll={result => setRollHistory(prev => [result, ...prev.slice(0, 29)])}
+      />
     </div>
   )
 }
