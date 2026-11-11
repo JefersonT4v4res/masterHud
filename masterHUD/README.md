@@ -118,7 +118,31 @@ A tela `/stream` (overlay pra compartilhar com jogadores sem acesso à ferrament
 - Enciclopédia de Raças, Classes, Origens, Divindades, Magias e Poderes — conteúdo próprio (não importar material oficial de sistemas como D&D sem checar licença/SRD antes)
 - Bestiário + "salvar NPCs/criaturas pra reaproveitar entre campanhas" — são a mesma feature na prática: `Personagem` já tem `tipo: 'monstro'`, então isso vira uma biblioteca pessoal de personagens não presos a uma mesa específica, e "importar" é só copiar o registro pra dentro de uma mesa
 - Campo "Nickname" separado de "Nome" no perfil — hoje só existe `nome` (o mesmo que aparece editável em `/perfil` e é usado como saudação); avaliar se faz sentido ter os dois ou se um só já resolve
-- Cortar/zoom da foto - crop + zoom interativo 
+- Cortar/zoom da foto - crop + zoom interativo
+---
+- Gerenciamento de condições e efeitos: Essa funcionalidade complementaria diretamente seu combate.
+
+Por exemplo:
+- Envenenado.
+- Atordoado.
+- Cego.
+- Incapacitado.
+- Amedrontado.
+- Queimando.
+- Regeneração.
+Cada condição poderia ter:
+- Nome.
+- Descrição.
+- Efeito mecânico.
+- Duração.
+- Quantidade de rodadas restantes.
+- Origem do efeito.
+Durante o combate, o mestre poderia adicionar ou remover condições dos participantes.
+
+E o sistema poderia reduzir automaticamente a duração quando o turno avançasse.
+---
+## Vale pensar sobre:
+- Uma observação de arquitetura: eu separaria o estado do combate das fichas dos personagens. O combate deve manter seu próprio registro de participantes, iniciativa, condições e alterações temporárias, enquanto as alterações permanentes de vida e XP são refletidas nas fichas quando apropriado. Isso ajuda bastante na recuperação de uma sessão interrompida.
 
 ## Próxima prioridade
 

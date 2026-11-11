@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { Button, Modal } from './ui'
-import { useDiceRoller, parseDiceExpression, type RollResult } from '../hooks/useDiceRoller'
+import { parseDiceExpression, executeRoll, type RollResult } from '../hooks/useDiceRoller'
 
 const QUICK_DICE = ['d4', 'd6', 'd8', 'd10', 'd12', 'd20', 'd100']
 const QUICK_EXPR = ['1d20', '2d6', '1d8+3', '4d6', '1d20+5']
@@ -9,22 +9,48 @@ interface Props {
   open: boolean
   onClose: () => void
   rolledBy?: string
+  // Quando aberto de dentro do Combate, essas props fazem esse modal compartilhar o
+  // mesmo toggle público/privado e o mesmo histórico do painel "Dados" ali — sem
+  // isso, eram dois rolers desconectados na mesma tela, cada um com seu próprio
+  // estado (o que foi reportado como "campos redundantes de rolagem pública").
+  // Sem essas props (uso fora de combate, ex: Gerenciador), o modal usa seu próprio
+  // estado interno, como sempre funcionou.
+  isPublic?: boolean
+  onTogglePublic?: () => void
+  history?: RollResult[]
+  onRoll?: (result: RollResult) => void
 }
 
-export const DiceRollerModal: React.FC<Props> = ({ open, onClose, rolledBy = 'Mestre' }) => {
-  const { roll, history } = useDiceRoller()
+export const DiceRollerModal: React.FC<Props> = ({
+  open, onClose, rolledBy = 'Mestre',
+  isPublic: isPublicExterno, onTogglePublic, history: historyExterno, onRoll,
+}) => {
   const [expr, setExpr] = useState('1d20')
-  const [isPublic, setIsPublic] = useState(true)
+  const [isPublicInterno, setIsPublicInterno] = useState(true)
   const [lastResult, setLastResult] = useState<RollResult | null>(null)
+  const [historyFallback, setHistoryFallback] = useState<RollResult[]>([])
+
+  const isPublic = isPublicExterno ?? isPublicInterno
+  const togglePublic = onTogglePublic ?? (() => setIsPublicInterno(p => !p))
+  const history = historyExterno ?? historyFallback
+
+  const executar = (expression: string) => {
+    const parsed = parseDiceExpression(expression)
+    if (!parsed) return null
+    const result = executeRoll(parsed, rolledBy, isPublic)
+    if (onRoll) onRoll(result)
+    else setHistoryFallback(prev => [result, ...prev.slice(0, 49)])
+    return result
+  }
 
   const doRoll = () => {
-    const result = roll(expr, rolledBy, isPublic)
+    const result = executar(expr)
     if (result) setLastResult(result)
   }
 
   const quickRoll = (expression: string) => {
     setExpr(expression)
-    const result = roll(expression, rolledBy, isPublic)
+    const result = executar(expression)
     if (result) setLastResult(result)
   }
 
@@ -77,7 +103,7 @@ export const DiceRollerModal: React.FC<Props> = ({ open, onClose, rolledBy = 'Me
       {/* Toggle público/privado */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
         <div
-          onClick={() => setIsPublic(!isPublic)}
+          onClick={togglePublic}
           style={{
             display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
             background: 'var(--bg-card)', border: `1px solid ${isPublic ? 'var(--gold-dim)' : 'var(--line)'}`,

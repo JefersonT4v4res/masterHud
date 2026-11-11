@@ -8,11 +8,133 @@ import type { Personagem as TPersonagem, MoldeMesa, Ataque, BonusAtributo } from
 import { calcAtributo } from '../types'
 import { resizeImageToBase64 } from '../utils/imagem'
 import { aplicarXp } from '../utils/xp'
+import { parseDiceExpression } from '../hooks/useDiceRoller'
+import { useAvisoSairSemSalvar } from '../hooks/useAvisoSairSemSalvar'
 
 // ── Helpers ──────────────────────────────────────────────────────────
 const defaultAtributos = (nomes: string[]) => nomes.map(nome => ({
   nome, valor: 0, abreviacao: nome.slice(0, 3).toUpperCase(),
 }))
+
+const LADOS_DADO = [4, 6, 8, 10, 12, 20, 100]
+const TOTAL_DADOS_MAX = 50 // soma de todos os grupos de dado de um ataque, não por grupo
+type GrupoDado = { lados: number; qtd: number }
+type BonusDado = { id: string; valor: number; origem: string }
+
+// Monta a string canônica "2d6+1d4+4" a partir dos grupos de dado + soma dos bônus
+// nomeados — é o único lugar que gera `ataque.dados`, nunca mais vem de digitação
+// livre (era assim que um texto tipo "100000000d999999999999" conseguia ser salvo).
+const formatDados = (grupos: GrupoDado[], bonusos: BonusDado[]): string => {
+  const partesDados = grupos.filter(g => g.qtd > 0).map(g => `${g.qtd}d${g.lados}`)
+  const totalBonus = bonusos.reduce((s, b) => s + b.valor, 0)
+  const partes = totalBonus !== 0 ? [...partesDados, String(totalBonus)] : partesDados
+  return partes.join('+').replace(/\+-/g, '-')
+}
+
+// Junta grupos repetidos do mesmo dado e trava o total em TOTAL_DADOS_MAX — roda
+// toda vez que um ataque é aberto pra editar, então uma ficha que já ficou com
+// dezenas de linhas (de antes do "+Dado" ganhar limite) se corrige sozinha ao reabrir.
+const sanearGrupos = (grupos: GrupoDado[]): GrupoDado[] => {
+  const porLados = new Map<number, number>()
+  for (const g of grupos) porLados.set(g.lados, (porLados.get(g.lados) || 0) + Math.max(0, g.qtd))
+  let restante = TOTAL_DADOS_MAX
+  const resultado: GrupoDado[] = []
+  for (const [lados, qtdTotal] of porLados) {
+    if (restante <= 0) break
+    const qtd = Math.min(qtdTotal, 50, restante)
+    if (qtd <= 0) continue
+    resultado.push({ lados, qtd })
+    restante -= qtd
+  }
+  return resultado
+}
+
+// Ficha antiga só tem `dados` como texto livre (ex: "2d6+1d4+3") — essa função tenta
+// reconstruir os grupos de dado e um bônus único a partir dela, pra preencher o
+// editor estruturado. A origem do bônus não existia antes, então fica em branco —
+// o mestre só precisa preencher uma vez, na primeira edição depois dessa mudança.
+const inferirCamposDado = (a: Ataque): { dadoGrupos: GrupoDado[]; dadoBonusos: BonusDado[] } => {
+  if (a.dadoGrupos !== undefined) {
+    return { dadoGrupos: sanearGrupos(a.dadoGrupos), dadoBonusos: a.dadoBonusos || [] }
+  }
+  const parsed = a.dados ? parseDiceExpression(a.dados) : null
+  let restante = TOTAL_DADOS_MAX
+  const dadoGrupos: GrupoDado[] = []
+  for (const g of parsed?.groups || []) {
+    if (!LADOS_DADO.includes(g.sides) || restante <= 0) continue
+    const qtd = Math.min(Math.abs(g.count), 50, restante)
+    if (qtd <= 0) continue
+    dadoGrupos.push({ lados: g.sides, qtd })
+    restante -= qtd
+  }
+  const dadoBonusos: BonusDado[] = parsed && parsed.modifier !== 0
+    ? [{ id: crypto.randomUUID(), valor: Math.max(-50, Math.min(50, parsed.modifier)), origem: '' }]
+    : []
+  return { dadoGrupos, dadoBonusos }
+}
+
+// Listas fixas pra tipo de dano/alcance/recarga/recurso — eram campos de texto
+// livre, o mesmo problema que o "Dados de dano" tinha (sem padrão, sem limite).
+type GrupoOpcoes = { label: string; opcoes: string[] }
+
+const TIPOS_DANO_GRUPOS: GrupoOpcoes[] = [
+  { label: '⚔️ Danos Físicos (Marciais)', opcoes: ['Concussão', 'Perfuração', 'Corte'] },
+  { label: '🔥 Danos Elementais e de Energia', opcoes: ['Fogo (Ígneo)', 'Gelo (Frio)', 'Elétrico', 'Ácido', 'Trovejante', 'Energia'] },
+  { label: '🌟 Danos Mágicos, Espirituais e Mentais', opcoes: ['Psíquico (Mental)', 'Necrótico (Trevas)', 'Radiante (Sagrado/Luz)', 'Veneno'] },
+]
+const ALCANCES = ['Corpo a corpo', 'Toque', 'Curto (até 9m)', 'Médio (até 18m)', 'Longo (até 36m)', 'Muito longo (36m+)']
+const RECARGA_GRUPOS: GrupoOpcoes[] = [
+  { label: '⏳ Recursos de Tempo (Descansos e Frequência)', opcoes: ['Descanso Curto', 'Descanso Longo', 'Recarga por Turnos / Rodadas'] },
+]
+const RECURSO_GRUPOS: GrupoOpcoes[] = [
+  { label: '🪙 Recursos Quantificáveis (Pontos e Espaços)', opcoes: ['Espaços de Magia', 'Pontos de Mana (PM)', 'Pontos de Esforço (PE)', 'Cargas'] },
+  { label: '🛠️ Recursos de Ação (Economia de Turno)', opcoes: ['Ação Padrão', 'Ação Bônus / Rápida', 'Reação', 'Tempo de Execução Longo'] },
+  { label: 'Componentes e Sacrifícios (Custos Materiais e Físicos)', opcoes: ['Componentes Materiais Consumíveis', 'Componentes Materiais Não-Consumíveis (Foco)', 'Pontos de Vida (PV) / Sacrifício de Sangue', 'Sanidade'] },
+]
+// Só esses tipos de recurso fazem sentido com uma quantidade numérica junto (ex: "2
+// Pontos de Mana") — os de ação/componente são a própria categoria do custo, não dá
+// pra ter "3 Ação Bônus".
+const TIPOS_RECURSO_COM_QTD = new Set(['Espaços de Magia', 'Pontos de Mana (PM)', 'Pontos de Esforço (PE)', 'Cargas', 'Pontos de Vida (PV) / Sacrifício de Sangue', 'Sanidade'])
+
+// Ficha antiga pode ter um valor digitado que não bate com nenhuma opção fixa —
+// em vez de apagar o que o mestre já tinha escrito, injeta como opção extra no
+// select, selecionada, até ele trocar por uma das opções padrão (ou não, se preferir).
+const optionsComLegado = (lista: string[], atual: string): string[] =>
+  atual && !lista.includes(atual) ? [atual, ...lista] : lista
+
+const opcoesAgrupadasComLegado = (grupos: GrupoOpcoes[], atual: string): React.ReactNode => {
+  const todas = grupos.flatMap(g => g.opcoes)
+  const legado = atual && !todas.includes(atual) ? atual : null
+  return (
+    <>
+      {legado && <option value={legado}>{legado}</option>}
+      {grupos.map(g => (
+        <optgroup key={g.label} label={g.label}>
+          {g.opcoes.map(o => <option key={o} value={o}>{o}</option>)}
+        </optgroup>
+      ))}
+    </>
+  )
+}
+
+const formatCustoRecurso = (qtd: number, tipo: string): string => {
+  if (!tipo || tipo === 'Nenhum') return ''
+  return TIPOS_RECURSO_COM_QTD.has(tipo) && qtd > 0 ? `${qtd} de ${tipo}` : tipo
+}
+
+// "2 de Mana" → {qtd:2, tipo:'Mana'}; o que não bate com esse formato vira um custo
+// "Nenhum" só pra não travar o editor — o texto original continua em `custoRecurso`
+// até o mestre resalvar.
+const inferirCustoRecurso = (a: Ataque): { custoRecursoQtd: number; custoRecursoTipo: string } => {
+  if (a.custoRecursoTipo !== undefined) {
+    return { custoRecursoQtd: a.custoRecursoQtd ?? 0, custoRecursoTipo: a.custoRecursoTipo }
+  }
+  const match = a.custoRecurso?.match(/^(\d+)\s*(?:de\s+)?(.+)$/i)
+  if (match) {
+    return { custoRecursoQtd: Math.max(0, Math.min(99, parseInt(match[1], 10))), custoRecursoTipo: match[2].trim() }
+  }
+  return { custoRecursoQtd: 0, custoRecursoTipo: 'Nenhum' }
+}
 
 const defaultPersonagem = (
   tipo: 'jogador' | 'npc' | 'monstro', atrs: string[], jogadorUid: string | null = null
@@ -35,8 +157,10 @@ function newAtaque(): Ataque {
   return {
     id: Math.random().toString(36).slice(2),
     nome: '', tipo: 'arma_cac',
-    dados: '', tipoDano: '', alcance: '',
-    custoRecurso: '', recarga: '', descricao: '',
+    dados: '1d6', dadoGrupos: [{ lados: 6, qtd: 1 }], dadoBonusos: [],
+    tipoDano: '', alcance: '',
+    custoRecurso: '', custoRecursoQtd: 0, custoRecursoTipo: 'Nenhum',
+    recarga: '', descricao: '',
   }
 }
 
@@ -123,6 +247,9 @@ export const PersonagemForm: React.FC = () => {
   // level up automático comparando com o que o mestre digitou no campo "XP atual"
   // (ver utils/xp.ts) — sem isso não dá pra saber quanto XP foi realmente ganho.
   const xpOriginalRef = useRef<{ xp: number; nivel: number; xpProximoNivel: number } | null>(null)
+  // Snapshot serializado do form como veio do Firestore (ou do padrão, se for
+  // criação) — compara com o form atual pra saber se tem alteração não salva.
+  const formOriginalRef = useRef<string | null>(null)
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro]         = useState<string | null>(null)
   const [mesaNome, setMesaNome] = useState('')
@@ -132,6 +259,8 @@ export const PersonagemForm: React.FC = () => {
   const [editandoItemIdx, setEditandoItemIdx] = useState<number | null>(null)
   const [itemEditValor, setItemEditValor] = useState('')
   const [novoBonus, setNovoBonus]       = useState({ atributo: '', valor: 0, origem: '' })
+  const [novoGrupoDado, setNovoGrupoDado] = useState<GrupoDado>({ lados: 6, qtd: 1 })
+  const [novoBonusDado, setNovoBonusDado] = useState({ valor: 0, origem: '' })
 
   const load = useCallback(async () => {
     try {
@@ -142,11 +271,15 @@ export const PersonagemForm: React.FC = () => {
       if (isEdit && personagemId) {
         const p = await getPersonagem(donoUid, mesaId, personagemId)
         if (p) {
-          setForm({ ...p, inventario: (p as any).inventario || [], bonusAtributos: p.bonusAtributos || [] })
+          const loaded = { ...p, inventario: (p as any).inventario || [], bonusAtributos: p.bonusAtributos || [] }
+          setForm(loaded)
+          formOriginalRef.current = JSON.stringify(loaded)
           xpOriginalRef.current = { xp: p.xp, nivel: p.nivel, xpProximoNivel: p.xpProximoNivel }
         }
       } else {
-        setForm(defaultPersonagem(tipoParam, atrs, souDono ? null : meuUid))
+        const loaded = defaultPersonagem(tipoParam, atrs, souDono ? null : meuUid)
+        setForm(loaded)
+        formOriginalRef.current = JSON.stringify(loaded)
       }
     } catch (err) {
       // Acesso negado de verdade (ex: removido da mesa, ficha desvinculada entre
@@ -162,6 +295,9 @@ export const PersonagemForm: React.FC = () => {
   }, [donoUid, mesaId, personagemId, isEdit, tipoParam, navigate])
 
   useEffect(() => { load() }, [load])
+
+  const isDirty = !!form && formOriginalRef.current !== null && JSON.stringify(form) !== formOriginalRef.current
+  const { confirmando: confirmSairAberto, tentarSair, confirmarSaidaSemSalvar, cancelarSaida } = useAvisoSairSemSalvar(isDirty)
 
   const update = (field: string, value: unknown) =>
     setForm(prev => prev ? { ...prev, [field]: value } : prev)
@@ -252,6 +388,11 @@ export const PersonagemForm: React.FC = () => {
         const novoId = await createPersonagem(donoUid, mesaId, payload)
         if (!souDono) await vincularPersonagemParticipando(mesaId, novoId)
       }
+      // Marca como salvo antes do redirect (compara com `form`, não `payload` —
+      // esse pode ter ganhado campos calculados na hora de salvar, tipo o level up
+      // automático, que o usuário não digitou) — senão o aviso de "sair sem salvar"
+      // dispara bloqueando a própria navegação de sucesso logo depois.
+      formOriginalRef.current = JSON.stringify(form)
       setToastMsg(subiuNivelMsg || (isEdit ? 'Alterações salvas!' : 'Personagem criado!'))
       setTimeout(() => navigate(`/mesa/${donoUid}/${mesaId}`), subiuNivelMsg ? 1800 : 1000)
     } catch (err) {
@@ -261,13 +402,56 @@ export const PersonagemForm: React.FC = () => {
     }
   }
 
+  // Clicar de novo no mesmo tipo de dado soma na linha que já existe em vez de criar
+  // outra — sem isso, "+ Dado" repetido criava uma linha nova por clique, sem limite
+  // (foi reportado quebrando o layout com dezenas de "1d6" separados). O total somado
+  // de todos os grupos também trava em TOTAL_DADOS_MAX, não só cada grupo isolado.
+  const addGrupoDado = () => {
+    if (!editandoAtaque || novoGrupoDado.qtd <= 0) return
+    const grupos = editandoAtaque.dadoGrupos || []
+    const totalAtual = grupos.reduce((s, g) => s + g.qtd, 0)
+    const espaco = Math.max(0, TOTAL_DADOS_MAX - totalAtual)
+    if (espaco <= 0) return
+    const qtdAdicionar = Math.min(novoGrupoDado.qtd, espaco)
+    const idxExistente = grupos.findIndex(g => g.lados === novoGrupoDado.lados)
+    const novosGrupos = idxExistente >= 0
+      ? grupos.map((g, i) => i === idxExistente ? { ...g, qtd: Math.min(50, g.qtd + qtdAdicionar) } : g)
+      : [...grupos, { lados: novoGrupoDado.lados, qtd: qtdAdicionar }]
+    setEditandoAtaque(a => a ? { ...a, dadoGrupos: novosGrupos } : a)
+    setNovoGrupoDado({ lados: 6, qtd: 1 })
+  }
+
+  const removeGrupoDado = (idx: number) => {
+    setEditandoAtaque(a => a ? { ...a, dadoGrupos: (a.dadoGrupos || []).filter((_, i) => i !== idx) } : a)
+  }
+
+  const addBonusDado = () => {
+    if (!editandoAtaque || !novoBonusDado.origem.trim() || novoBonusDado.valor === 0) return
+    const bonus: BonusDado = { id: crypto.randomUUID(), ...novoBonusDado }
+    setEditandoAtaque(a => a ? { ...a, dadoBonusos: [...(a.dadoBonusos || []), bonus] } : a)
+    setNovoBonusDado({ valor: 0, origem: '' })
+  }
+
+  const removeBonusDado = (id: string) => {
+    setEditandoAtaque(a => a ? { ...a, dadoBonusos: (a.dadoBonusos || []).filter(b => b.id !== id) } : a)
+  }
+
   const saveAtaque = () => {
     if (!editandoAtaque || !form) return
-    const exists = form.ataques.find(a => a.id === editandoAtaque.id)
+    const grupos = editandoAtaque.dadoGrupos || []
+    const bonusos = editandoAtaque.dadoBonusos || []
+    const custoQtd = editandoAtaque.custoRecursoQtd ?? 0
+    const custoTipo = editandoAtaque.custoRecursoTipo ?? 'Nenhum'
+    const final: Ataque = {
+      ...editandoAtaque,
+      dados: formatDados(grupos, bonusos),
+      custoRecurso: formatCustoRecurso(custoQtd, custoTipo),
+    }
+    const exists = form.ataques.find(a => a.id === final.id)
     if (exists) {
-      update('ataques', form.ataques.map(a => a.id === editandoAtaque.id ? editandoAtaque : a))
+      update('ataques', form.ataques.map(a => a.id === final.id ? final : a))
     } else {
-      update('ataques', [...form.ataques, editandoAtaque])
+      update('ataques', [...form.ataques, final])
     }
     setAtaqueModal(false)
     setEditandoAtaque(null)
@@ -302,19 +486,20 @@ export const PersonagemForm: React.FC = () => {
 
   const atrs = molde?.atributos || ['Força', 'Destreza', 'Constituição', 'Inteligência', 'Sabedoria', 'Carisma']
   const tipoLabel = form.tipo === 'jogador' ? 'Jogador' : form.tipo === 'npc' ? 'NPC' : 'Monstro'
+  const totalDadosAtaque = (editandoAtaque?.dadoGrupos || []).reduce((s, g) => s + g.qtd, 0)
   const inventario: string[] = (form as any).inventario || []
 
   return (
     <div style={{ minHeight: '100vh', paddingBottom: 40 }}>
       <Topbar
         crumbs={[
-          { label: 'Início', to: '/' },
-          { label: mesaNome, to: `/mesa/${donoUid}/${mesaId}` },
+          { label: 'Início', onClick: () => tentarSair(() => navigate('/')) },
+          { label: mesaNome, onClick: () => tentarSair(() => navigate(`/mesa/${donoUid}/${mesaId}`)) },
           { label: isEdit ? 'Editar personagem' : `Criar ${tipoLabel}` },
         ]}
         right={
           <div style={{ display: 'flex', gap: 10 }}>
-            <Button variant="ghost" onClick={() => navigate(`/mesa/${donoUid}/${mesaId}`)}>Cancelar</Button>
+            <Button variant="ghost" onClick={() => tentarSair(() => navigate(`/mesa/${donoUid}/${mesaId}`))}>Cancelar</Button>
             <Button onClick={handleSave} disabled={!form.nome.trim() || salvando}>
               {salvando ? 'Salvando...' : isEdit ? 'Salvar alterações' : 'Criar personagem'}
             </Button>
@@ -563,7 +748,7 @@ export const PersonagemForm: React.FC = () => {
                       {a.custoRecurso && ` · ${a.custoRecurso}`}
                     </div>
                   </div>
-                  <Button size="sm" variant="ghost" onClick={() => { setEditandoAtaque({ ...a }); setAtaqueModal(true) }}>Editar</Button>
+                  <Button size="sm" variant="ghost" onClick={() => { setEditandoAtaque({ ...a, ...inferirCamposDado(a), ...inferirCustoRecurso(a) }); setAtaqueModal(true) }}>Editar</Button>
                   <Button size="sm" variant="danger-outline" onClick={() => removeAtaque(a.id)}>✕</Button>
                 </div>
               ))}
@@ -630,15 +815,130 @@ export const PersonagemForm: React.FC = () => {
               <option value="magia">Magia</option>
               <option value="habilidade">Habilidade especial</option>
             </Select>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <Input label="Dados de dano" value={editandoAtaque.dados} onChange={e => setEditandoAtaque(a => a ? { ...a, dados: e.target.value } : a)} placeholder="Ex: 2d6+3" maxLength={20} />
-              <Input label="Tipo de dano" value={editandoAtaque.tipoDano} onChange={e => setEditandoAtaque(a => a ? { ...a, tipoDano: e.target.value } : a)} placeholder="Ex: fogo, cortante..." maxLength={30} />
+            <div>
+              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: 'var(--ink-faint)', marginBottom: 5 }}>
+                Dados de dano
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--ink-faint)', marginBottom: 8 }}>
+                Dá pra somar mais de um tipo de dado — algumas magias/habilidades rolam, por exemplo, "2d6+1d4".
+                Clicar de novo no mesmo dado soma na linha já existente. {totalDadosAtaque}/{TOTAL_DADOS_MAX} dados no total.
+              </div>
+
+              {(editandoAtaque.dadoGrupos || []).length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                  {(editandoAtaque.dadoGrupos || []).map((g, idx) => (
+                    <div key={idx} style={{
+                      display: 'flex', alignItems: 'center', gap: 6,
+                      background: 'var(--bg-card)', border: '1px solid var(--line)', borderRadius: 7,
+                      padding: '5px 9px', fontFamily: 'var(--font-display)', fontSize: 13,
+                    }}>
+                      {g.qtd}d{g.lados}
+                      <span style={{ color: 'var(--ink-faint)', cursor: 'pointer', fontSize: 13 }} onClick={() => removeGrupoDado(idx)}>✕</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div style={{ display: 'grid', gridTemplateColumns: '64px 1fr auto', gap: 8 }}>
+                <Select
+                  value={String(novoGrupoDado.lados)}
+                  onChange={e => setNovoGrupoDado(g => ({ ...g, lados: Number(e.target.value) }))}
+                >
+                  {LADOS_DADO.map(l => <option key={l} value={l}>d{l}</option>)}
+                </Select>
+                <Input
+                  type="number" min={1} max={50}
+                  value={novoGrupoDado.qtd}
+                  onChange={e => {
+                    const valor = Number(e.target.value)
+                    setNovoGrupoDado(g => ({ ...g, qtd: Number.isFinite(valor) ? Math.max(1, Math.min(50, Math.trunc(valor))) : 1 }))
+                  }}
+                />
+                <Button size="sm" variant="secondary" onClick={addGrupoDado} disabled={totalDadosAtaque >= TOTAL_DADOS_MAX}>+ Dado</Button>
+              </div>
+
+              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: 'var(--ink-faint)', margin: '14px 0 5px' }}>
+                Bônus fixos
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--ink-faint)', marginBottom: 8 }}>
+                Cada bônus precisa dizer de onde vem (Força, uma arma encantada, uma habilidade...) — evita um "+3" solto sem explicação
+              </div>
+              {(editandoAtaque.dadoBonusos || []).length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
+                  {(editandoAtaque.dadoBonusos || []).map(b => (
+                    <div key={b.id} style={{
+                      display: 'flex', alignItems: 'center', gap: 8,
+                      background: 'var(--bg-card)', border: '1px solid var(--line)', borderRadius: 7,
+                      padding: '6px 10px', fontSize: 12.5,
+                    }}>
+                      <span style={{ color: b.valor > 0 ? 'var(--moss)' : 'var(--blood)', fontFamily: 'var(--font-display)', fontWeight: 700, minWidth: 28 }}>
+                        {b.valor > 0 ? '+' : ''}{b.valor}
+                      </span>
+                      <span style={{ flex: 1, color: 'var(--ink-dim)' }}>{b.origem}</span>
+                      <span style={{ color: 'var(--ink-faint)', cursor: 'pointer', fontSize: 14 }} onClick={() => removeBonusDado(b.id)}>✕</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div style={{ display: 'grid', gridTemplateColumns: '70px 1fr auto', gap: 8 }}>
+                <Input
+                  type="number" min={-50} max={50}
+                  value={novoBonusDado.valor}
+                  onChange={e => {
+                    const valor = Number(e.target.value)
+                    setNovoBonusDado(b => ({ ...b, valor: Number.isFinite(valor) ? Math.max(-50, Math.min(50, Math.trunc(valor))) : 0 }))
+                  }}
+                />
+                <Input
+                  value={novoBonusDado.origem}
+                  onChange={e => setNovoBonusDado(b => ({ ...b, origem: e.target.value }))}
+                  placeholder="Ex: Força, Espada +2 encantada..."
+                  maxLength={30}
+                />
+                <Button size="sm" variant="secondary" onClick={addBonusDado} disabled={!novoBonusDado.origem.trim() || novoBonusDado.valor === 0}>+ Bônus</Button>
+              </div>
+
+              <div style={{ fontSize: 11, color: 'var(--ink-faint)', marginTop: 10 }}>
+                Prévia: {formatDados(editandoAtaque.dadoGrupos || [], editandoAtaque.dadoBonusos || []) || '(sem dano — só rola acerto)'}
+              </div>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <Input label="Alcance" value={editandoAtaque.alcance} onChange={e => setEditandoAtaque(a => a ? { ...a, alcance: e.target.value } : a)} placeholder="Ex: 9m, corpo a corpo" maxLength={30} />
-              <Input label="Custo de recurso" value={editandoAtaque.custoRecurso || ''} onChange={e => setEditandoAtaque(a => a ? { ...a, custoRecurso: e.target.value } : a)} placeholder="Ex: 2 de mana" maxLength={30} />
+            <Select label="Tipo de dano" value={editandoAtaque.tipoDano} onChange={e => setEditandoAtaque(a => a ? { ...a, tipoDano: e.target.value } : a)}>
+              <option value="">—</option>
+              {opcoesAgrupadasComLegado(TIPOS_DANO_GRUPOS, editandoAtaque.tipoDano)}
+            </Select>
+            <Select label="Alcance" value={editandoAtaque.alcance} onChange={e => setEditandoAtaque(a => a ? { ...a, alcance: e.target.value } : a)}>
+              <option value="">—</option>
+              {optionsComLegado(ALCANCES, editandoAtaque.alcance).map(al => <option key={al} value={al}>{al}</option>)}
+            </Select>
+            <div>
+              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: 'var(--ink-faint)', marginBottom: 5 }}>
+                Custo de recurso
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '70px 1fr', gap: 8 }}>
+                <Input
+                  type="number" min={0} max={99}
+                  value={editandoAtaque.custoRecursoQtd ?? 0}
+                  disabled={!TIPOS_RECURSO_COM_QTD.has(editandoAtaque.custoRecursoTipo ?? 'Nenhum')}
+                  onChange={e => {
+                    const valor = Number(e.target.value)
+                    setEditandoAtaque(a => a ? { ...a, custoRecursoQtd: Number.isFinite(valor) ? Math.max(0, Math.min(99, Math.trunc(valor))) : 0 } : a)
+                  }}
+                />
+                <Select
+                  value={editandoAtaque.custoRecursoTipo ?? 'Nenhum'}
+                  onChange={e => setEditandoAtaque(a => a ? {
+                    ...a, custoRecursoTipo: e.target.value,
+                    custoRecursoQtd: TIPOS_RECURSO_COM_QTD.has(e.target.value) ? (a.custoRecursoQtd || 1) : 0,
+                  } : a)}
+                >
+                  <option value="Nenhum">Nenhum</option>
+                  {opcoesAgrupadasComLegado(RECURSO_GRUPOS, (editandoAtaque.custoRecursoTipo ?? 'Nenhum') === 'Nenhum' ? '' : (editandoAtaque.custoRecursoTipo ?? ''))}
+                </Select>
+              </div>
             </div>
-            <Input label="Recarga" value={editandoAtaque.recarga || ''} onChange={e => setEditandoAtaque(a => a ? { ...a, recarga: e.target.value } : a)} placeholder="Ex: 1x por combate, descanso longo..." maxLength={40} />
+            <Select label="Recarga" value={editandoAtaque.recarga || ''} onChange={e => setEditandoAtaque(a => a ? { ...a, recarga: e.target.value } : a)}>
+              <option value="">—</option>
+              {opcoesAgrupadasComLegado(RECARGA_GRUPOS, editandoAtaque.recarga || '')}
+            </Select>
             <Textarea label="Descrição / efeito" value={editandoAtaque.descricao || ''} onChange={e => setEditandoAtaque(a => a ? { ...a, descricao: e.target.value } : a)} placeholder="O que acontece quando usa?" maxLength={1000} />
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 6 }}>
               <Button variant="ghost" onClick={() => setAtaqueModal(false)}>Cancelar</Button>
@@ -646,6 +946,19 @@ export const PersonagemForm: React.FC = () => {
             </div>
           </div>
         )}
+      </Modal>
+
+      <Modal open={confirmSairAberto} onClose={cancelarSaida} title="Alterações não salvas" width={420}>
+        <div style={{ fontSize: 13.5, color: 'var(--ink-dim)', marginBottom: 20 }}>
+          Você editou essa ficha e ainda não salvou. Se sair agora, essas alterações se perdem.
+        </div>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+          <Button variant="ghost" onClick={cancelarSaida}>Continuar editando</Button>
+          <Button variant="danger-outline" onClick={confirmarSaidaSemSalvar}>Sair sem salvar</Button>
+          <Button onClick={() => { cancelarSaida(); handleSave() }} disabled={!form.nome.trim() || salvando}>
+            Salvar alterações
+          </Button>
+        </div>
       </Modal>
 
       <Toast message={toastMsg || ''} visible={!!toastMsg} />

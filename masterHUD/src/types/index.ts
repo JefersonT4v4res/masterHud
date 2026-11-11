@@ -60,10 +60,22 @@ export interface Ataque {
   id: string
   nome: string
   tipo: 'arma_cac' | 'arma_distancia' | 'magia' | 'habilidade'
-  dados: string          // agora aceita "1d6+1d4", "2d8+3", etc.
+  // `dados` é gerado a partir de dadoGrupos/dadoBonusos (nunca digitado livre — era
+  // assim que um texto tipo "100000000d999999999999" conseguia ser salvo). Continua
+  // existindo como string porque é o formato que o roller (useDiceRoller) e o
+  // histórico de rolagens leem; fichas antigas só têm `dados` (sem os campos
+  // estruturados) e são reinterpretadas na edição via parseDiceExpression.
+  dados: string
+  dadoGrupos?: { lados: number; qtd: number }[]              // ex: [{lados:6,qtd:2},{lados:4,qtd:1}] = "2d6+1d4"
+  dadoBonusos?: { id: string; valor: number; origem: string }[] // bônus fixos nomeados, ex: {valor:2, origem:"Força"}
   tipoDano: string
   alcance: string
+  // `custoRecurso` é gerado a partir de custoRecursoQtd/custoRecursoTipo, mesmo
+  // padrão do `dados` acima — existe como string pronta pra exibir na lista de
+  // ataques sem precisar montar o texto toda vez.
   custoRecurso?: string
+  custoRecursoQtd?: number
+  custoRecursoTipo?: string
   recarga?: string
   descricao?: string
 }

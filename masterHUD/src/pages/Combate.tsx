@@ -486,10 +486,10 @@ export const Combate: React.FC = () => {
               <div style={{ display: 'flex', gap: 6 }}>
                 <input
                   value={diceExpr}
-                  onChange={e => setDiceExpr(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter' && diceExpr.trim()) { rolarDado(diceExpr, dicePublic, selecionado.personagem.nome); setDiceExpr('') } }}
-                  placeholder="Ex: 2d6+3 (ou clique nos dados acima)"
-                  style={{ flex: 1, background: 'var(--bg-card)', border: '1px solid var(--line)', borderRadius: 7, color: 'var(--ink)', fontFamily: 'var(--font-display)', fontSize: 14, padding: '8px 10px', outline: 'none', letterSpacing: 1 }}
+                  readOnly
+                  title="Clique nos dados acima pra montar a rolagem — esse campo só mostra o resultado"
+                  placeholder="Clique nos dados acima"
+                  style={{ flex: 1, background: 'var(--bg-card)', border: '1px solid var(--line)', borderRadius: 7, color: 'var(--ink)', fontFamily: 'var(--font-display)', fontSize: 14, padding: '8px 10px', outline: 'none', letterSpacing: 1, cursor: 'default' }}
                 />
                 {diceExpr.trim() && (
                   <Button size="sm" variant="ghost" title="Limpar" onClick={() => setDiceExpr('')}>✕</Button>
@@ -647,7 +647,12 @@ export const Combate: React.FC = () => {
       </Modal>
 
       {toast && <Toast message={toast} visible={!!toast} />}
-      <DiceRollerModal open={diceModal} onClose={() => setDiceModal(false)} />
+      <DiceRollerModal
+        open={diceModal} onClose={() => setDiceModal(false)}
+        rolledBy={selecionado?.personagem.nome || 'Mestre'}
+        isPublic={dicePublic} onTogglePublic={() => setDicePublic(p => !p)}
+        history={rollHistory} onRoll={result => setRollHistory(prev => [result, ...prev.slice(0, 29)])}
+      />
     </div>
   )
 }

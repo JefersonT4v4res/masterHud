@@ -139,10 +139,10 @@ Os itens já resolvidos nesta rodada (incluindo os 3 que você confirmou que era
 - ~~Botões na tela de gerenciar tem de ser mais claros que são botões~~ — os cards de personagem agora têm um botão "+ Fila"/"✓ Na fila" visível em vez de depender do clique no card inteiro (que era a causa de "descobrir sem querer"), e a fileira de ações embaixo não quebra mais palavra por palavra
 
 **UX, ainda não mexido:**
-- Botão de salvar alterações está muito escondido (em qual tela além do perfil? já ajustei o perfil — Cancelar/Salvar ficaram lado a lado)
-- Tipos de dados tem de ser fixos e selecionáveis, deixar campo aberto pra digitação gera erro ou bugs — isso é sobre o mesmo dropdown de sistema que corrigi, ou outro campo (tipo de dano do ataque, por exemplo)?
-- Após alterações feitas, se a pessoa esquecer de salvar, avisar antes de sair da página
-- Tela combate: campos redundantes de rolagem pública; opção de ocultar rolagens sem necessidade no container de dados
-- Tela de gerenciamento de mesa como um todo precisa de uma repensada maior de UX (você mencionou que "pode ser melhorada em muito") — isso é um projeto à parte, maior que um ajuste pontual; vale conversar separado sobre o que incomoda além do que já foi listado aqui
+- ~~Botão de salvar alterações está muito escondido (em qual tela além do perfil? já ajustei o perfil — Cancelar/Salvar ficaram lado a lado)~~
+- ~~Tipos de dados tem de ser fixos e selecionáveis — "Dados de dano" trocado de texto livre pra lista de dados (soma mais de um tipo, ex: "2d6+1d4") + lista de bônus fixos com origem obrigatória (Força, arma encantada...), total travado em 50 dados combinados. "Tipo de dano" (físico/elemental/mágico, agrupado), "Alcance" e "Recarga" (descanso curto/longo/recarga por turno) agora são dropdown com opções fixas. "Custo de recurso" virou tipo (quantificável: PM/PE/espaços/cargas; ação: padrão/bônus/reação; ou componente/sacrifício) + quantidade só nos tipos que fazem sentido ter número. Valor digitado antigo que não bate com nenhuma opção aparece como extra na lista em vez de ser apagado — tudo se ajusta sozinho na primeira vez que o mestre reabrir o ataque pra editar~~
+- ~~Após alterações feitas, se a pessoa esquecer de salvar, avisar antes de sair da página~~
+- ~~Tela combate: campos redundantes de rolagem pública~~ — o modal "Dados completo" (atalho do rodapé) tinha seu próprio toggle público/privado e seu próprio histórico, desconectados do painel "Dados" principal; agora os dois compartilham o mesmo estado (rolar em um atualiza o outro, o toggle é um só). O campo de expressão do painel "Dados" também virou só-leitura — a rolagem se monta clicando nos dados, sem precisar digitar
+- ~~Tela de gerenciamento de mesa como um todo precisa de uma repensada maior de UX (você mencionou que "pode ser melhorada em muito") — isso é um projeto à parte, maior que um ajuste pontual; vale conversar separado sobre o que incomoda além do que já foi listado aqui~~
 
 ## Dúvidas
